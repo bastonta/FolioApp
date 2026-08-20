@@ -8,6 +8,8 @@ interface ProgressScrubberProps {
   onPrev: () => void;
   onNext: () => void;
   sectionFractions: number[];
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }
 
 export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
@@ -17,11 +19,17 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   onPrev,
   onNext,
   sectionFractions,
+  onMouseEnter,
+  onMouseLeave,
 }) => {
   const percent = Math.round(fraction * 100);
 
   return (
-    <footer className="reader-footer-bar">
+    <footer
+      className="reader-footer-bar"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
       <button
         type="button"
         className="footer-nav-btn footer-nav-prev"

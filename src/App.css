@@ -140,6 +140,10 @@ button {
    Header Bar (Top Navigation)
    ========================================================================== */
 .reader-header-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   height: 48px;
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
@@ -147,9 +151,10 @@ button {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  z-index: 100;
+  z-index: 200;
   user-select: none;
-  flex-shrink: 0;
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-sm);
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
 }
 
@@ -157,16 +162,19 @@ button {
   transform: translateY(-100%);
   opacity: 0;
   pointer-events: none;
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
 }
 
 .header-left-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+}
+
+.header-separator {
+  width: 1px;
+  height: 18px;
+  background-color: var(--border-color);
+  margin: 0 4px;
 }
 
 .header-pill-btn {
@@ -226,12 +234,12 @@ button {
    Reader Workspace (Sidebar + Canvas)
    ========================================================================== */
 .reader-workspace {
+  width: 100vw;
+  height: 100vh;
   flex: 1;
   display: flex;
-  height: calc(100vh - 48px);
   position: relative;
   overflow: hidden;
-  transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .controls-hidden .reader-workspace {
@@ -249,8 +257,13 @@ button {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  z-index: 50;
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 90;
+  padding-top: 48px;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), padding-top 0.25s ease;
+}
+
+.controls-hidden .sidebar-container.pinned {
+  padding-top: 0;
 }
 
 .sidebar-container.floating {
@@ -258,8 +271,13 @@ button {
   top: 0;
   bottom: 0;
   left: 0;
+  padding-top: 48px;
   box-shadow: var(--shadow-lg);
-  z-index: 50;
+  z-index: 150;
+}
+
+.controls-hidden .sidebar-container.floating {
+  padding-top: 0;
 }
 
 .sidebar-floating-backdrop {
@@ -268,7 +286,7 @@ button {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 45;
+  z-index: 140;
   background-color: rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(1px);
   animation: fadeIn 0.15s ease-out;
@@ -330,6 +348,13 @@ button {
   margin-top: 2px;
 }
 
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .sidebar-info-btn {
   width: 28px;
   height: 28px;
@@ -340,6 +365,11 @@ button {
 
 .sidebar-info-btn:hover {
   background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.sidebar-pin-btn.active {
+  background-color: var(--bg-active-pill);
   color: var(--text-primary);
 }
 
@@ -878,28 +908,28 @@ foliate-view::part(foot) {
    Reader Footer Bar & Scrubber
    ========================================================================== */
 .reader-footer-bar {
-  height: 38px;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
   background-color: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  flex-shrink: 0;
-  z-index: 10;
+  z-index: 100;
   user-select: none;
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, margin-bottom 0.25s ease;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.05);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
 }
 
 .controls-hidden .reader-footer-bar {
   transform: translateY(100%);
   opacity: 0;
   pointer-events: none;
-  margin-bottom: -38px;
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
 }
 
 .footer-nav-btn {

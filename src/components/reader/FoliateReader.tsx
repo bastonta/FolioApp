@@ -251,6 +251,98 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBookInfoOpen, setIsBookInfoOpen] = useState(false);
 
+  // Refs for tracking active modal/hover state inside timer callbacks
+  const isSettingsOpenRef = useRef(isSettingsOpen);
+  useEffect(() => {
+    isSettingsOpenRef.current = isSettingsOpen;
+  }, [isSettingsOpen]);
+
+  const isBookInfoOpenRef = useRef(isBookInfoOpen);
+  useEffect(() => {
+    isBookInfoOpenRef.current = isBookInfoOpen;
+  }, [isBookInfoOpen]);
+
+  const footnoteRef = useRef(footnote);
+  useEffect(() => {
+    footnoteRef.current = footnote;
+  }, [footnote]);
+
+  const selectionRef = useRef(selection);
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
+
+  const isHoveringControlsRef = useRef(false);
+  const autoHideTimerRef = useRef<number | null>(null);
+
+  const showControlsRef = useRef(showControls);
+  useEffect(() => {
+    showControlsRef.current = showControls;
+  }, [showControls]);
+
+  const cancelAutoHide = useCallback(() => {
+    if (autoHideTimerRef.current) {
+      clearTimeout(autoHideTimerRef.current);
+      autoHideTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleAutoHide = useCallback(() => {
+    cancelAutoHide();
+    autoHideTimerRef.current = window.setTimeout(() => {
+      if (
+        !isHoveringControlsRef.current &&
+        !isSettingsOpenRef.current &&
+        !isBookInfoOpenRef.current &&
+        !footnoteRef.current &&
+        !selectionRef.current &&
+        (!settingsRef.current.sidebarOpen || settingsRef.current.sidebarPinned)
+      ) {
+        setShowControls(false);
+      }
+    }, 3500);
+  }, [cancelAutoHide]);
+
+  const scheduleAutoHideRef = useRef(scheduleAutoHide);
+  useEffect(() => {
+    scheduleAutoHideRef.current = scheduleAutoHide;
+  }, [scheduleAutoHide]);
+
+  const cancelAutoHideRef = useRef(cancelAutoHide);
+  useEffect(() => {
+    cancelAutoHideRef.current = cancelAutoHide;
+  }, [cancelAutoHide]);
+
+  // Manage auto-hide timer when showControls changes
+  useEffect(() => {
+    if (showControls) {
+      scheduleAutoHide();
+    } else {
+      cancelAutoHide();
+    }
+    return () => cancelAutoHide();
+  }, [showControls, scheduleAutoHide, cancelAutoHide]);
+
+  // Window mouse movement for top/bottom edge triggers & activity reset
+  useEffect(() => {
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      if (!showControls) {
+        // User moves mouse near top or bottom edge -> reveal controls
+        if (e.clientY <= 36 || e.clientY >= window.innerHeight - 36) {
+          setShowControls(true);
+          scheduleAutoHide();
+        }
+      } else {
+        if (!isHoveringControlsRef.current) {
+          scheduleAutoHide();
+        }
+      }
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    return () => window.removeEventListener('mousemove', handleWindowMouseMove);
+  }, [showControls, scheduleAutoHide]);
+
   // Search state
   const [isSearching, setIsSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState(0);
@@ -405,18 +497,36 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         view.addEventListener('load', (e: any) => {
           const { doc, index } = e.detail;
 
+          // Mouse move inside iframe for edge reveal & activity reset
+          doc.addEventListener('mousemove', (ev: MouseEvent) => {
+            if (!showControlsRef.current) {
+              const clientY = ev.clientY;
+              const docHeight = doc.defaultView?.innerHeight || window.innerHeight;
+              if (clientY <= 36 || clientY >= docHeight - 36) {
+                setShowControls(true);
+                scheduleAutoHideRef.current();
+              }
+            } else {
+              if (!isHoveringControlsRef.current) {
+                scheduleAutoHideRef.current();
+              }
+            }
+          });
+
           // Keyboard navigation inside iframe
           doc.addEventListener('keydown', (ev: KeyboardEvent) => {
             if (ev.key === 'ArrowLeft' || ev.key === 'h') {
               view.goLeft();
+              if (showControlsRef.current) scheduleAutoHideRef.current();
             } else if (ev.key === 'ArrowRight' || ev.key === 'l' || ev.key === ' ') {
               view.goRight();
+              if (showControlsRef.current) scheduleAutoHideRef.current();
             } else if (ev.key === 'Escape') {
-              if (selection) {
+              if (selectionRef.current) {
                 setSelection(null);
                 return;
               }
-              if (footnote) {
+              if (footnoteRef.current) {
                 setFootnote(null);
                 return;
               }
@@ -424,9 +534,19 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
                 onUpdateSettings({ sidebarOpen: false });
                 return;
               }
-              setShowControls((prev) => !prev);
+              setShowControls((prev) => {
+                const next = !prev;
+                if (next) scheduleAutoHideRef.current();
+                else cancelAutoHideRef.current();
+                return next;
+              });
             } else if (ev.key === 'm' || ev.key === 'M') {
-              setShowControls((prev) => !prev);
+              setShowControls((prev) => {
+                const next = !prev;
+                if (next) scheduleAutoHideRef.current();
+                else cancelAutoHideRef.current();
+                return next;
+              });
             }
           });
 
@@ -490,7 +610,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             // 3. Clean click without text selection -> toggle controls
             const sel = doc.defaultView?.getSelection();
             if (!sel || sel.isCollapsed || !sel.toString().trim()) {
-              setShowControls((prev) => !prev);
+              setShowControls((prev) => {
+                const next = !prev;
+                if (next) scheduleAutoHideRef.current();
+                else cancelAutoHideRef.current();
+                return next;
+              });
             }
           });
         });
@@ -583,8 +708,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
       if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
         viewRef.current?.goLeft();
+        if (showControls) scheduleAutoHide();
       } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
         viewRef.current?.goRight();
+        if (showControls) scheduleAutoHide();
       } else if (e.key === 'Escape') {
         if (selection) {
           setSelection(null);
@@ -606,15 +733,25 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           onUpdateSettings({ sidebarOpen: false });
           return;
         }
-        setShowControls((prev) => !prev);
+        setShowControls((prev) => {
+          const next = !prev;
+          if (next) scheduleAutoHide();
+          else cancelAutoHide();
+          return next;
+        });
       } else if (e.key === 'm' || e.key === 'M') {
-        setShowControls((prev) => !prev);
+        setShowControls((prev) => {
+          const next = !prev;
+          if (next) scheduleAutoHide();
+          else cancelAutoHide();
+          return next;
+        });
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings]);
+  }, [selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide]);
 
   // TOC Navigation
   const handleSelectTOC = (href: string) => {
@@ -739,6 +876,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       {/* Top Header Bar matching Screenshots 1 & 3 */}
       <HeaderBar
         onBackToLibrary={onBackToLibrary}
+        onToggleSidebar={() =>
+          onUpdateSettings({
+            sidebarOpen: !settings.sidebarOpen,
+          })
+        }
+        isSidebarOpen={settings.sidebarOpen}
         onToggleSearch={() => {
           const nextTab = settings.activeTab === 'search' ? 'contents' : 'search';
           onUpdateSettings({
@@ -758,8 +901,23 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         isPinned={settings.sidebarPinned}
         chapterTitle={chapterTitle}
         settingsBtnRef={settingsBtnRef}
-        onToggleControls={() => setShowControls((prev) => !prev)}
+        onToggleControls={() => {
+          setShowControls((prev) => {
+            const next = !prev;
+            if (next) scheduleAutoHide();
+            else cancelAutoHide();
+            return next;
+          });
+        }}
         showControls={showControls}
+        onMouseEnter={() => {
+          isHoveringControlsRef.current = true;
+          cancelAutoHide();
+        }}
+        onMouseLeave={() => {
+          isHoveringControlsRef.current = false;
+          if (showControls) scheduleAutoHide();
+        }}
       />
 
       {/* Main Workspace: Sidebar + Reader */}
@@ -777,6 +935,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         <Sidebar
           isOpen={settings.sidebarOpen}
           isPinned={settings.sidebarPinned}
+          onTogglePin={() =>
+            onUpdateSettings({
+              sidebarPinned: !settings.sidebarPinned,
+            })
+          }
           activeTab={settings.activeTab}
           onTabChange={(tab) => onUpdateSettings({ activeTab: tab })}
           metadata={metadata}
@@ -819,6 +982,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             onPrev={() => viewRef.current?.goLeft()}
             onNext={() => viewRef.current?.goRight()}
             sectionFractions={sectionFractions}
+            onMouseEnter={() => {
+              isHoveringControlsRef.current = true;
+              cancelAutoHide();
+            }}
+            onMouseLeave={() => {
+              isHoveringControlsRef.current = false;
+              if (showControls) scheduleAutoHide();
+            }}
           />
         </main>
       </div>
@@ -828,7 +999,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         <button
           type="button"
           className="reader-floating-show-btn"
-          onClick={() => setShowControls(true)}
+          onClick={() => {
+            setShowControls(true);
+            scheduleAutoHide();
+          }}
           title="Show Controls (Click page or Esc)"
           aria-label="Show Controls"
         >

@@ -10,11 +10,14 @@ import {
   Bookmark as BookmarkIcon,
   Info,
   BookOpen,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 
 interface SidebarProps {
   isOpen: boolean;
   isPinned: boolean;
+  onTogglePin?: () => void;
   activeTab: 'contents' | 'annotations' | 'bookmarks' | 'search';
   onTabChange: (tab: 'contents' | 'annotations' | 'bookmarks' | 'search') => void;
   metadata: BookMetadata | null;
@@ -40,6 +43,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   isPinned,
+  onTogglePin,
   activeTab,
   onTabChange,
   metadata,
@@ -90,15 +94,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          className="sidebar-info-btn"
-          onClick={onOpenBookInfo}
-          title="Book Details"
-          aria-label="Book Details"
-        >
-          <Info size={16} />
-        </button>
+        <div className="sidebar-header-actions">
+          <button
+            type="button"
+            className="sidebar-info-btn"
+            onClick={onOpenBookInfo}
+            title="Book Details"
+            aria-label="Book Details"
+          >
+            <Info size={16} />
+          </button>
+
+          {onTogglePin && (
+            <button
+              type="button"
+              className={`sidebar-info-btn sidebar-pin-btn ${isPinned ? 'active' : ''}`}
+              onClick={onTogglePin}
+              title={isPinned ? 'Unpin Sidebar' : 'Pin Sidebar'}
+              aria-label={isPinned ? 'Unpin Sidebar' : 'Pin Sidebar'}
+            >
+              {isPinned ? <Pin size={16} /> : <PinOff size={16} />}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tab Content Body */}
