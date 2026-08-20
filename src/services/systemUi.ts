@@ -9,6 +9,31 @@ const THEME_COLORS: Record<string, { bg: string; isDarkIcons: boolean }> = {
 };
 
 /**
+ * Detect if the app is currently running on a mobile device / environment
+ */
+export function isMobileDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  // 1. Native Android Bridge (Tauri Android)
+  if ((window as any).AndroidBridge) {
+    return true;
+  }
+
+  // 2. User Agent check for mobile / tablet devices
+  const ua = navigator.userAgent || navigator.vendor || (window as any).opera || '';
+  if (/android|avantgo|blackberry|iemobile|ipad|iphone|ipod|opera mini|palmsource|pocketpc|smartphone|tablet|up\.browser|up\.link|webos|windows ce|windows phone/i.test(ua)) {
+    return true;
+  }
+
+  // 3. iPad / iOS 13+ detection (reports as Macintosh with touch points)
+  if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Utility to control System UI / Status Bar (Clock & Battery) across platforms
  */
 
@@ -23,14 +48,19 @@ export function setStatusBarVisible(visible: boolean): void {
     console.warn('AndroidBridge error:', e);
   }
 
-  // 2. Tauri Window Fullscreen API (Desktop / Tauri mobile window)
+  // Fullscreen is only for mobile devices. On desktop, the window should stay as it was.
+  if (!isMobileDevice()) {
+    return;
+  }
+
+  // 2. Tauri Window Fullscreen API (Tauri mobile window)
   import('@tauri-apps/api/window')
     .then(({ getCurrentWindow }) => {
       getCurrentWindow().setFullscreen(!visible).catch(() => {});
     })
     .catch(() => {});
 
-  // 3. Web Fullscreen API fallback (Browsers / PWA)
+  // 3. Web Fullscreen API fallback (Mobile browsers / PWA)
   try {
     if (!visible) {
       if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
