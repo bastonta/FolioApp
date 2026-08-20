@@ -395,6 +395,227 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       viewerContainerRef.current.appendChild(view);
       viewRef.current = view;
 
+      // Register event listeners before opening/navigating to ensure initial page events are captured
+      // Listen for relocate events
+      view.addEventListener('relocate', (e: any) => {
+        const detail = e.detail || {};
+        const fraction = detail.fraction ?? 0;
+        setProgressFraction(fraction);
+
+        if (detail.cfi) {
+          setCurrentCFI(detail.cfi);
+          saveLastLocation(bookId, detail.cfi, fraction);
+        }
+
+        if (detail.tocItem) {
+          setCurrentHref(detail.tocItem.href);
+          setChapterTitle(detail.tocItem.label || '');
+        }
+
+        let locText = '';
+        if (detail.pageItem) {
+          locText = `Page ${detail.pageItem.label || detail.pageItem.current || ''}`;
+        } else if (detail.location?.current != null && detail.location?.total != null) {
+          locText = `Loc. ${detail.location.current} of ${detail.location.total}`;
+        } else {
+          locText = `Loc. ${Math.round(fraction * 1000)}`;
+        }
+        setLocationLabel(locText);
+      });
+
+      // Footnote / Endnote interception on link events
+      view.addEventListener('link', async (e: any) => {
+        const { a, href } = e.detail || {};
+        if (isFootnoteOrEndnoteLink(a, href)) {
+          e.preventDefault();
+          const noteData = await extractFootnoteData(view.book, href, a);
+          if (noteData) {
+            setFootnote(noteData);
+          } else {
+            view.goTo(href);
+          }
+        }
+      });
+
+      // Listen for section load to attach selection and keyboard handlers
+      view.addEventListener('load', (e: any) => {
+        const { doc, index } = e.detail;
+
+        // Mouse move inside iframe for edge reveal & activity reset
+        doc.addEventListener('mousemove', (ev: MouseEvent) => {
+          if (!showControlsRef.current) {
+            const clientY = ev.clientY;
+            const docHeight = doc.defaultView?.innerHeight || window.innerHeight;
+            if (clientY <= 36 || clientY >= docHeight - 36) {
+              setShowControls(true);
+              scheduleAutoHideRef.current();
+            }
+          } else {
+            if (!isHoveringControlsRef.current) {
+              scheduleAutoHideRef.current();
+            }
+          }
+        });
+
+        // Keyboard navigation inside iframe
+        doc.addEventListener('keydown', (ev: KeyboardEvent) => {
+          if (ev.key === 'ArrowLeft' || ev.key === 'h') {
+            view.goLeft();
+            if (showControlsRef.current) scheduleAutoHideRef.current();
+          } else if (ev.key === 'ArrowRight' || ev.key === 'l' || ev.key === ' ') {
+            view.goRight();
+            if (showControlsRef.current) scheduleAutoHideRef.current();
+          } else if (ev.key === 'Escape') {
+            if (selectionRef.current) {
+              setSelection(null);
+              return;
+            }
+            if (footnoteRef.current) {
+              setFootnote(null);
+              return;
+            }
+            if (!settingsRef.current.sidebarPinned && settingsRef.current.sidebarOpen) {
+              onUpdateSettings({ sidebarOpen: false });
+              return;
+            }
+            setShowControls((prev) => {
+              const next = !prev;
+              if (next) scheduleAutoHideRef.current();
+              else cancelAutoHideRef.current();
+              return next;
+            });
+          } else if (ev.key === 'm' || ev.key === 'M') {
+            setShowControls((prev) => {
+              const next = !prev;
+              if (next) scheduleAutoHideRef.current();
+              else cancelAutoHideRef.current();
+              return next;
+            });
+          }
+        });
+
+        // Text selection for highlights & annotations
+        doc.addEventListener('pointerup', () => {
+          const sel = doc.defaultView?.getSelection();
+          if (sel && !sel.isCollapsed && sel.toString().trim()) {
+            const text = sel.toString().trim();
+            if (text.length > 0) {
+              const range = sel.getRangeAt(0);
+              const cfi = view.getCFI(index, range);
+              const rangeRect = range.getBoundingClientRect();
+              const viewRect = viewerContainerRef.current?.getBoundingClientRect() || {
+                top: 0,
+                left: 0,
+              };
+
+              const existing = loadAnnotations(bookId).find((a) => a.value === cfi);
+
+              setSelection({
+                text,
+                cfi,
+                sectionIndex: index,
+                rect: {
+                  x: viewRect.left + rangeRect.left,
+                  y: viewRect.top + rangeRect.top,
+                  width: rangeRect.width,
+                  height: rangeRect.height,
+                },
+                existingAnnotation: existing,
+              });
+            }
+          }
+        });
+
+        // Click handler inside iframe: footnote opening, unpinned sidebar dismissal, and controls toggle
+        doc.addEventListener('click', async (ev: MouseEvent) => {
+          // 1. If unpinned sidebar is open, clicking dismisses it
+          if (!settingsRef.current.sidebarPinned && settingsRef.current.sidebarOpen) {
+            onUpdateSettings({ sidebarOpen: false });
+            return;
+          }
+
+          // 2. Footnote / endnote link click
+          const a = (ev.target as Element)?.closest('a[href]');
+          if (a) {
+            const href = a.getAttribute('href') || '';
+            if (isFootnoteOrEndnoteLink(a, href)) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              const noteData = await extractFootnoteData(view.book, href, a);
+              if (noteData) {
+                setFootnote(noteData);
+              } else {
+                view.goTo(href);
+              }
+            }
+            return;
+          }
+
+          // 3. Clean click without text selection -> toggle controls
+          const sel = doc.defaultView?.getSelection();
+          if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+            setShowControls((prev) => {
+              const next = !prev;
+              if (next) scheduleAutoHideRef.current();
+              else cancelAutoHideRef.current();
+              return next;
+            });
+          }
+        });
+      });
+
+      // Overlay & Annotation rendering
+      view.addEventListener('create-overlay', () => {
+        const currentAnns = loadAnnotations(bookId);
+        for (const ann of currentAnns) {
+          view.addAnnotation(ann);
+        }
+      });
+
+      view.addEventListener('draw-annotation', (e: any) => {
+        const { draw, annotation } = e.detail;
+        const { color, style } = annotation;
+        if (style === 'underline') {
+          draw(Overlayer.underline, { color: color || '#ff7675', width: 2 });
+        } else if (style === 'squiggly') {
+          draw(Overlayer.squiggly, { color: color || '#ff7675', width: 2 });
+        } else if (style === 'strikethrough') {
+          draw(Overlayer.strikethrough, { color: color || '#ff7675', width: 2 });
+        } else {
+          draw(Overlayer.highlight, { color: color || '#ff7675' });
+        }
+      });
+
+      view.addEventListener('show-annotation', (e: any) => {
+        const cfi = e.detail.value;
+        const ann = loadAnnotations(bookId).find((a) => a.value === cfi);
+        if (ann) {
+          const viewRect = viewerContainerRef.current?.getBoundingClientRect() || {
+            top: 0,
+            left: 0,
+          };
+          const rangeRect = e.detail.range?.getBoundingClientRect() || {
+            left: 100,
+            top: 100,
+            width: 100,
+            height: 20,
+          };
+
+          setSelection({
+            text: ann.text,
+            cfi: ann.value,
+            sectionIndex: e.detail.index ?? 0,
+            rect: {
+              x: viewRect.left + rangeRect.left,
+              y: viewRect.top + rangeRect.top,
+              width: rangeRect.width,
+              height: rangeRect.height,
+            },
+            existingAnnotation: ann,
+          });
+        }
+      });
+
       try {
         await view.open(bookSource);
         if (isCancelled) return;
@@ -479,226 +700,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         }
 
         setSectionFractions(view.getSectionFractions() || []);
-
-        // Listen for relocate events
-        view.addEventListener('relocate', (e: any) => {
-          const detail = e.detail || {};
-          const fraction = detail.fraction ?? 0;
-          setProgressFraction(fraction);
-
-          if (detail.cfi) {
-            setCurrentCFI(detail.cfi);
-            saveLastLocation(bookId, detail.cfi, fraction);
-          }
-
-          if (detail.tocItem) {
-            setCurrentHref(detail.tocItem.href);
-            setChapterTitle(detail.tocItem.label || '');
-          }
-
-          let locText = '';
-          if (detail.pageItem) {
-            locText = `Page ${detail.pageItem.label || detail.pageItem.current || ''}`;
-          } else if (detail.location?.current != null && detail.location?.total != null) {
-            locText = `Loc. ${detail.location.current} of ${detail.location.total}`;
-          } else {
-            locText = `Loc. ${Math.round(fraction * 1000)}`;
-          }
-          setLocationLabel(locText);
-        });
-
-        // Footnote / Endnote interception on link events
-        view.addEventListener('link', async (e: any) => {
-          const { a, href } = e.detail || {};
-          if (isFootnoteOrEndnoteLink(a, href)) {
-            e.preventDefault();
-            const noteData = await extractFootnoteData(view.book, href, a);
-            if (noteData) {
-              setFootnote(noteData);
-            } else {
-              view.goTo(href);
-            }
-          }
-        });
-
-        // Listen for section load to attach selection and keyboard handlers
-        view.addEventListener('load', (e: any) => {
-          const { doc, index } = e.detail;
-
-          // Mouse move inside iframe for edge reveal & activity reset
-          doc.addEventListener('mousemove', (ev: MouseEvent) => {
-            if (!showControlsRef.current) {
-              const clientY = ev.clientY;
-              const docHeight = doc.defaultView?.innerHeight || window.innerHeight;
-              if (clientY <= 36 || clientY >= docHeight - 36) {
-                setShowControls(true);
-                scheduleAutoHideRef.current();
-              }
-            } else {
-              if (!isHoveringControlsRef.current) {
-                scheduleAutoHideRef.current();
-              }
-            }
-          });
-
-          // Keyboard navigation inside iframe
-          doc.addEventListener('keydown', (ev: KeyboardEvent) => {
-            if (ev.key === 'ArrowLeft' || ev.key === 'h') {
-              view.goLeft();
-              if (showControlsRef.current) scheduleAutoHideRef.current();
-            } else if (ev.key === 'ArrowRight' || ev.key === 'l' || ev.key === ' ') {
-              view.goRight();
-              if (showControlsRef.current) scheduleAutoHideRef.current();
-            } else if (ev.key === 'Escape') {
-              if (selectionRef.current) {
-                setSelection(null);
-                return;
-              }
-              if (footnoteRef.current) {
-                setFootnote(null);
-                return;
-              }
-              if (!settingsRef.current.sidebarPinned && settingsRef.current.sidebarOpen) {
-                onUpdateSettings({ sidebarOpen: false });
-                return;
-              }
-              setShowControls((prev) => {
-                const next = !prev;
-                if (next) scheduleAutoHideRef.current();
-                else cancelAutoHideRef.current();
-                return next;
-              });
-            } else if (ev.key === 'm' || ev.key === 'M') {
-              setShowControls((prev) => {
-                const next = !prev;
-                if (next) scheduleAutoHideRef.current();
-                else cancelAutoHideRef.current();
-                return next;
-              });
-            }
-          });
-
-          // Text selection for highlights & annotations
-          doc.addEventListener('pointerup', () => {
-            const sel = doc.defaultView?.getSelection();
-            if (sel && !sel.isCollapsed && sel.toString().trim()) {
-              const text = sel.toString().trim();
-              if (text.length > 0) {
-                const range = sel.getRangeAt(0);
-                const cfi = view.getCFI(index, range);
-                const rangeRect = range.getBoundingClientRect();
-                const viewRect = viewerContainerRef.current?.getBoundingClientRect() || {
-                  top: 0,
-                  left: 0,
-                };
-
-                const existing = loadAnnotations(bookId).find((a) => a.value === cfi);
-
-                setSelection({
-                  text,
-                  cfi,
-                  sectionIndex: index,
-                  rect: {
-                    x: viewRect.left + rangeRect.left,
-                    y: viewRect.top + rangeRect.top,
-                    width: rangeRect.width,
-                    height: rangeRect.height,
-                  },
-                  existingAnnotation: existing,
-                });
-              }
-            }
-          });
-
-          // Click handler inside iframe: footnote opening, unpinned sidebar dismissal, and controls toggle
-          doc.addEventListener('click', async (ev: MouseEvent) => {
-            // 1. If unpinned sidebar is open, clicking dismisses it
-            if (!settingsRef.current.sidebarPinned && settingsRef.current.sidebarOpen) {
-              onUpdateSettings({ sidebarOpen: false });
-              return;
-            }
-
-            // 2. Footnote / endnote link click
-            const a = (ev.target as Element)?.closest('a[href]');
-            if (a) {
-              const href = a.getAttribute('href') || '';
-              if (isFootnoteOrEndnoteLink(a, href)) {
-                ev.preventDefault();
-                ev.stopPropagation();
-                const noteData = await extractFootnoteData(view.book, href, a);
-                if (noteData) {
-                  setFootnote(noteData);
-                } else {
-                  view.goTo(href);
-                }
-              }
-              return;
-            }
-
-            // 3. Clean click without text selection -> toggle controls
-            const sel = doc.defaultView?.getSelection();
-            if (!sel || sel.isCollapsed || !sel.toString().trim()) {
-              setShowControls((prev) => {
-                const next = !prev;
-                if (next) scheduleAutoHideRef.current();
-                else cancelAutoHideRef.current();
-                return next;
-              });
-            }
-          });
-        });
-
-        // Overlay & Annotation rendering
-        view.addEventListener('create-overlay', () => {
-          const currentAnns = loadAnnotations(bookId);
-          for (const ann of currentAnns) {
-            view.addAnnotation(ann);
-          }
-        });
-
-        view.addEventListener('draw-annotation', (e: any) => {
-          const { draw, annotation } = e.detail;
-          const { color, style } = annotation;
-          if (style === 'underline') {
-            draw(Overlayer.underline, { color: color || '#ff7675', width: 2 });
-          } else if (style === 'squiggly') {
-            draw(Overlayer.squiggly, { color: color || '#ff7675', width: 2 });
-          } else if (style === 'strikethrough') {
-            draw(Overlayer.strikethrough, { color: color || '#ff7675', width: 2 });
-          } else {
-            draw(Overlayer.highlight, { color: color || '#ff7675' });
-          }
-        });
-
-        view.addEventListener('show-annotation', (e: any) => {
-          const cfi = e.detail.value;
-          const ann = loadAnnotations(bookId).find((a) => a.value === cfi);
-          if (ann) {
-            const viewRect = viewerContainerRef.current?.getBoundingClientRect() || {
-              top: 0,
-              left: 0,
-            };
-            const rangeRect = e.detail.range?.getBoundingClientRect() || {
-              left: 100,
-              top: 100,
-              width: 100,
-              height: 20,
-            };
-
-            setSelection({
-              text: ann.text,
-              cfi: ann.value,
-              sectionIndex: e.detail.index ?? 0,
-              rect: {
-                x: viewRect.left + rangeRect.left,
-                y: viewRect.top + rangeRect.top,
-                width: rangeRect.width,
-                height: rangeRect.height,
-              },
-              existingAnnotation: ann,
-            });
-          }
-        });
       } catch (err) {
         console.error('Failed to open book with foliate-js:', err);
       }
