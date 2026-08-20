@@ -16,7 +16,7 @@ import { ProgressScrubber } from './ProgressScrubber';
 import { FootnoteModal } from './FootnoteModal';
 import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
 import { BookInfoModal } from './BookInfoModal';
-import { setStatusBarVisible } from '../../services/systemUi';
+import { setStatusBarVisible, setStatusBarTheme } from '../../services/systemUi';
 import {
   saveLastLocation,
   saveAnnotation,
@@ -235,6 +235,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     setStatusBarVisible(false);
     return () => {
       setStatusBarVisible(true);
+      setStatusBarTheme(settingsRef.current.theme);
     };
   }, []);
 

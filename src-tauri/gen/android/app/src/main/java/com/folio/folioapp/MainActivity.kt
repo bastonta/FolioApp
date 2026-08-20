@@ -13,6 +13,11 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+
+    // Ensure status bar icons are dark by default (for light theme background)
+    val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+    insetsController.isAppearanceLightStatusBars = true
+    insetsController.isAppearanceLightNavigationBars = true
   }
 
   override fun onWebViewCreate(webView: WebView) {
@@ -53,6 +58,28 @@ class MainActivity : TauriActivity() {
           } else {
             insetsController.hide(WindowInsetsCompat.Type.statusBars())
           }
+        }
+      }
+
+      @JavascriptInterface
+      fun setStatusBarIconsDark(darkIcons: Boolean) {
+        runOnUiThread {
+          val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+          insetsController.isAppearanceLightStatusBars = darkIcons
+          insetsController.isAppearanceLightNavigationBars = darkIcons
+        }
+      }
+
+      @JavascriptInterface
+      fun setStatusBarTheme(theme: String) {
+        runOnUiThread {
+          val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+          val isDarkIcons = when (theme.lowercase()) {
+            "dark", "gray", "black" -> false
+            else -> true
+          }
+          insetsController.isAppearanceLightStatusBars = isDarkIcons
+          insetsController.isAppearanceLightNavigationBars = isDarkIcons
         }
       }
     }, "AndroidBridge")

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FoliateReader } from './components/reader/FoliateReader';
 import { LibraryView } from './components/library/LibraryView';
 import { ReaderSettings, RecentBook } from './types/reader';
@@ -15,7 +15,7 @@ import {
   formatLanguageMap,
   formatContributor,
 } from './services/storage';
-import { setStatusBarVisible } from './services/systemUi';
+import { setStatusBarVisible, setStatusBarTheme } from './services/systemUi';
 import './App.css';
 
 interface ActiveBookState {
@@ -29,6 +29,11 @@ export function App() {
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
   const [recentBooks, setRecentBooks] = useState<RecentBook[]>(() => loadRecentBooks());
   const [activeBook, setActiveBook] = useState<ActiveBookState | null>(null);
+
+  // Synchronize native status bar icon appearance with the current app theme
+  useEffect(() => {
+    setStatusBarTheme(settings.theme);
+  }, [settings.theme]);
 
   // Sync settings updates
   const handleUpdateSettings = (newSettings: Partial<ReaderSettings>) => {
@@ -133,6 +138,7 @@ export function App() {
   // Back to Library
   const handleBackToLibrary = () => {
     setStatusBarVisible(true);
+    setStatusBarTheme(settings.theme);
     setActiveBook(null);
     setRecentBooks(loadRecentBooks());
     document.title = 'Folio — E-Book Reader';
