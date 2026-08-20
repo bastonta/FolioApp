@@ -15,6 +15,7 @@ import {
   formatLanguageMap,
   formatContributor,
 } from './services/storage';
+import { setStatusBarVisible } from './services/systemUi';
 import './App.css';
 
 interface ActiveBookState {
@@ -131,6 +132,7 @@ export function App() {
 
   // Back to Library
   const handleBackToLibrary = () => {
+    setStatusBarVisible(true);
     setActiveBook(null);
     setRecentBooks(loadRecentBooks());
     document.title = 'Folio — E-Book Reader';

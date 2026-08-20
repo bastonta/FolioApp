@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Library, PanelLeft, Pin, PinOff, Search, Sliders } from "lucide-react";
+import { Library, PanelLeft, Pin, PinOff, Search } from "lucide-react";
 import React from "react";
 
 interface HeaderBarProps {
@@ -7,14 +7,9 @@ interface HeaderBarProps {
   isSidebarOpen: boolean;
   onToggleSearch: () => void;
   isSearchActive: boolean;
-  onToggleSettings: () => void;
-  isSettingsOpen: boolean;
   onTogglePin?: () => void;
   isPinned?: boolean;
   chapterTitle?: string;
-  settingsBtnRef: React.RefObject<HTMLButtonElement | null>;
-  onToggleControls?: () => void;
-  showControls?: boolean;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }
@@ -25,14 +20,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   isSidebarOpen,
   onToggleSearch,
   isSearchActive,
-  onToggleSettings,
-  isSettingsOpen,
   onTogglePin,
   isPinned = false,
   chapterTitle,
-  settingsBtnRef,
-  onToggleControls,
-  showControls = true,
   onMouseEnter,
   onMouseLeave,
 }) => {
@@ -96,18 +86,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         >
           <Search size={16} />
         </button>
-
-        {/* Reader Settings */}
-        <button
-          type="button"
-          ref={settingsBtnRef}
-          className={`header-icon-btn ${isSettingsOpen ? "active" : ""}`}
-          onClick={onToggleSettings}
-          title="Reader Settings"
-          aria-label="Settings"
-        >
-          <Sliders size={16} />
-        </button>
       </div>
 
       {/* Center Running Head Title */}
@@ -116,25 +94,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           <span className="header-chapter-name">{chapterTitle}</span>
         )}
       </div>
-
-      {/* Right Header Actions */}
-      <div className="header-right-actions">
-        {onToggleControls && (
-          <button
-            type="button"
-            className="header-icon-btn header-hide-controls-btn"
-            onClick={onToggleControls}
-            title={
-              showControls
-                ? "Hide Menus / Reading Mode (Click page or Esc)"
-                : "Show Menus"
-            }
-            aria-label={showControls ? "Hide Menus" : "Show Menus"}
-          >
-            {showControls ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
-        )}
-      </div>
     </header>
   );
 };
+

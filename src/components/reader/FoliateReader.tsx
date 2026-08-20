@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Sliders } from 'lucide-react';
 import '../../foliate-js/view.js';
 import { Overlayer } from '../../foliate-js/overlayer.js';
 import {
@@ -16,8 +15,8 @@ import { HeaderBar } from './HeaderBar';
 import { ProgressScrubber } from './ProgressScrubber';
 import { FootnoteModal } from './FootnoteModal';
 import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
-import { SettingsPopover } from './SettingsPopover';
 import { BookInfoModal } from './BookInfoModal';
+import { setStatusBarVisible } from '../../services/systemUi';
 import {
   saveLastLocation,
   saveAnnotation,
@@ -229,8 +228,15 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 }) => {
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<any>(null);
-  const settingsBtnRef = useRef<HTMLButtonElement>(null);
   const settingsRef = useRef(settings);
+
+  // Hide system status bar (clock & battery) while reading, restore on leaving reader
+  useEffect(() => {
+    setStatusBarVisible(false);
+    return () => {
+      setStatusBarVisible(true);
+    };
+  }, []);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -251,15 +257,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
   const [footnote, setFootnote] = useState<FootnoteData | null>(null);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBookInfoOpen, setIsBookInfoOpen] = useState(false);
 
   // Refs for tracking active modal/hover state inside timer callbacks
-  const isSettingsOpenRef = useRef(isSettingsOpen);
-  useEffect(() => {
-    isSettingsOpenRef.current = isSettingsOpen;
-  }, [isSettingsOpen]);
-
   const isBookInfoOpenRef = useRef(isBookInfoOpen);
   useEffect(() => {
     isBookInfoOpenRef.current = isBookInfoOpen;
@@ -295,7 +295,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     autoHideTimerRef.current = window.setTimeout(() => {
       if (
         !isHoveringControlsRef.current &&
-        !isSettingsOpenRef.current &&
         !isBookInfoOpenRef.current &&
         !footnoteRef.current &&
         !selectionRef.current &&
@@ -746,10 +745,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           setSelection(null);
           return;
         }
-        if (isSettingsOpen) {
-          setIsSettingsOpen(false);
-          return;
-        }
         if (isBookInfoOpen) {
           setIsBookInfoOpen(false);
           return;
@@ -780,7 +775,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide]);
+  }, [selection, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide]);
 
   // TOC Navigation
   const handleSelectTOC = (href: string) => {
@@ -919,8 +914,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           });
         }}
         isSearchActive={settings.sidebarOpen && settings.activeTab === 'search'}
-        onToggleSettings={() => setIsSettingsOpen(!isSettingsOpen)}
-        isSettingsOpen={isSettingsOpen}
         onTogglePin={() =>
           onUpdateSettings({
             sidebarPinned: !settings.sidebarPinned,
@@ -929,16 +922,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         }
         isPinned={settings.sidebarPinned}
         chapterTitle={chapterTitle}
-        settingsBtnRef={settingsBtnRef}
-        onToggleControls={() => {
-          setShowControls((prev) => {
-            const next = !prev;
-            if (next) scheduleAutoHide();
-            else cancelAutoHide();
-            return next;
-          });
-        }}
-        showControls={showControls}
         onMouseEnter={() => {
           isHoveringControlsRef.current = true;
           cancelAutoHide();
@@ -1022,31 +1005,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           />
         </main>
       </div>
-
-      {/* Floating button to show controls when hidden */}
-      {!showControls && (
-        <button
-          type="button"
-          className="reader-floating-show-btn"
-          onClick={() => {
-            setShowControls(true);
-            scheduleAutoHide();
-          }}
-          title="Show Controls (Click page or Esc)"
-          aria-label="Show Controls"
-        >
-          <Sliders size={15} />
-        </button>
-      )}
-
-      {/* Settings Popover */}
-      <SettingsPopover
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        settings={settings}
-        onUpdateSettings={onUpdateSettings}
-        triggerRef={settingsBtnRef}
-      />
 
       {/* Selection / Annotation Popover */}
       <AnnotationPopover
