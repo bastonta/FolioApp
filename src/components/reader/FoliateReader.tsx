@@ -14,6 +14,7 @@ import { HeaderBar } from './HeaderBar';
 import { ProgressScrubber } from './ProgressScrubber';
 import { FootnoteModal } from './FootnoteModal';
 import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
+import { SettingsPopover } from './SettingsPopover';
 import { BookInfoModal } from './BookInfoModal';
 import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu } from '../../services/systemUi';
 import {
@@ -263,9 +264,16 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
   const [footnote, setFootnote] = useState<FootnoteData | null>(null);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBookInfoOpen, setIsBookInfoOpen] = useState(false);
+  const settingsBtnRef = useRef<HTMLButtonElement>(null);
 
   // Refs for tracking active modal/hover state inside timer callbacks
+  const isSettingsOpenRef = useRef(isSettingsOpen);
+  useEffect(() => {
+    isSettingsOpenRef.current = isSettingsOpen;
+  }, [isSettingsOpen]);
+
   const isBookInfoOpenRef = useRef(isBookInfoOpen);
   useEffect(() => {
     isBookInfoOpenRef.current = isBookInfoOpen;
@@ -301,6 +309,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     autoHideTimerRef.current = window.setTimeout(() => {
       if (
         !isHoveringControlsRef.current &&
+        !isSettingsOpenRef.current &&
         !isBookInfoOpenRef.current &&
         !footnoteRef.current &&
         !selectionRef.current &&
@@ -744,7 +753,13 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             return;
           }
 
-          // 5. Clean click without text selection -> toggle controls
+          // 5. If settings popover is open, dismiss it on tap
+          if (isSettingsOpenRef.current) {
+            setIsSettingsOpen(false);
+            return;
+          }
+
+          // 6. Clean click without text selection -> toggle controls
           const sel = doc.defaultView?.getSelection();
           if (!sel || sel.isCollapsed || !sel.toString().trim()) {
             setShowControls((prev) => {
@@ -932,6 +947,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           clearAllSelections();
           return;
         }
+        if (isSettingsOpen) {
+          setIsSettingsOpen(false);
+          return;
+        }
         if (isBookInfoOpen) {
           setIsBookInfoOpen(false);
           return;
@@ -962,7 +981,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [selection, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide, clearAllSelections]);
+  }, [selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide, clearAllSelections]);
 
   // TOC Navigation
   const handleSelectTOC = (href: string) => {
@@ -1067,6 +1086,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           })
         }
         isSidebarOpen={settings.sidebarOpen}
+        onToggleSettings={() => {
+          setIsSettingsOpen((prev) => !prev);
+          if (showControls) cancelAutoHide();
+        }}
+        isSettingsOpen={isSettingsOpen}
+        settingsBtnRef={settingsBtnRef}
         onTogglePin={() =>
           onUpdateSettings({
             sidebarPinned: !settings.sidebarPinned,
@@ -1126,6 +1151,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           className="reader-canvas-area"
           onClick={() => {
             dismissOriginalContextMenu();
+            if (isSettingsOpen) {
+              setIsSettingsOpen(false);
+            }
             if (!settings.sidebarPinned && settings.sidebarOpen) {
               onUpdateSettings({ sidebarOpen: false });
             }
@@ -1133,6 +1161,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           onContextMenu={(e) => {
             e.preventDefault();
             dismissOriginalContextMenu();
+            if (isSettingsOpen) {
+              setIsSettingsOpen(false);
+            }
             if (selectionRef.current) {
               setSelection(null);
               clearAllSelections();
@@ -1140,6 +1171,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           }}
           onPointerDown={() => {
             dismissOriginalContextMenu();
+            if (isSettingsOpen) {
+              setIsSettingsOpen(false);
+            }
             if (selectionRef.current) {
               setSelection(null);
               clearAllSelections();
@@ -1174,6 +1208,15 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           />
         </main>
       </div>
+
+      {/* Settings Popover / Bottom Sheet */}
+      <SettingsPopover
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        onUpdateSettings={onUpdateSettings}
+        triggerRef={settingsBtnRef}
+      />
 
       {/* Selection / Annotation Popover */}
       <AnnotationPopover

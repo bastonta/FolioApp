@@ -232,9 +232,10 @@ button {
 }
 
 .header-right-actions {
-  min-width: 80px;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 4px;
 }
 
 /* ==========================================================================
@@ -1174,13 +1175,19 @@ foliate-view::part(foot) {
 }
 
 /* ==========================================================================
-   Settings Popover
+   Settings Popover & Bottom Sheet
    ========================================================================== */
+.settings-popover-backdrop {
+  display: none;
+}
+
 .settings-popover {
   position: absolute;
-  top: 54px;
-  left: 90px;
-  width: 290px;
+  top: calc(48px + var(--sat) + 6px);
+  right: calc(12px + var(--sar));
+  width: 320px;
+  max-height: calc(100vh - 64px - var(--sat) - var(--sab));
+  overflow-y: auto;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -1190,6 +1197,12 @@ foliate-view::part(foot) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  animation: fadeIn 0.15s ease-out;
+  box-sizing: border-box;
+}
+
+.settings-header-bar {
+  display: none;
 }
 
 .settings-section {
@@ -1216,10 +1229,17 @@ foliate-view::part(foot) {
   border: 1px solid;
   font-size: 11px;
   font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  transition: all 0.15s ease;
 }
 
 .theme-pill.active {
   box-shadow: 0 0 0 2px var(--accent-color);
+  font-weight: 600;
 }
 
 .segmented-control {
@@ -1237,6 +1257,11 @@ foliate-view::part(foot) {
   font-size: 12px;
   color: var(--text-secondary);
   gap: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .segmented-btn.active {
@@ -1248,14 +1273,19 @@ foliate-view::part(foot) {
 
 .settings-select {
   width: 100%;
-  height: 32px;
+  height: 34px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
   color: var(--text-primary);
-  padding: 0 8px;
-  font-size: 12px;
+  padding: 0 10px;
+  font-size: 13px;
   outline: none;
+  cursor: pointer;
+}
+
+.settings-select:focus {
+  border-color: var(--accent-color);
 }
 
 .settings-row-between {
@@ -1267,6 +1297,7 @@ foliate-view::part(foot) {
 .settings-val-text {
   font-size: 11px;
   color: var(--text-muted);
+  font-weight: 500;
 }
 
 .stepper-control {
@@ -1276,11 +1307,20 @@ foliate-view::part(foot) {
 }
 
 .stepper-btn {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-sm);
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.stepper-btn:hover {
+  background-color: var(--bg-active-hover);
 }
 
 .settings-slider {
@@ -1290,15 +1330,17 @@ foliate-view::part(foot) {
   background-color: var(--bg-tertiary);
   border-radius: 2px;
   outline: none;
+  cursor: pointer;
 }
 
 .settings-slider::-webkit-slider-thumb {
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background-color: var(--accent-color);
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
 }
 
 .settings-divider {
@@ -1322,6 +1364,8 @@ foliate-view::part(foot) {
   background-color: var(--bg-tertiary);
   position: relative;
   transition: background-color 0.15s ease;
+  cursor: pointer;
+  border: none;
 }
 
 .toggle-switch.checked {
@@ -1337,10 +1381,179 @@ foliate-view::part(foot) {
   top: 2px;
   left: 2px;
   transition: transform 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .toggle-switch.checked .toggle-thumb {
   transform: translateX(16px);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUpBottom {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Mobile Responsiveness for Reader & Settings */
+@media (max-width: 640px) {
+  .header-pin-btn {
+    display: none;
+  }
+
+  .header-center-title {
+    padding: 0 8px;
+  }
+
+  .header-chapter-name {
+    font-size: 12px;
+  }
+
+  .settings-popover-backdrop {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 940;
+    animation: fadeIn 0.15s ease-out;
+  }
+
+  .settings-popover {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 85vh;
+    border-radius: 20px 20px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    border-top: 1px solid var(--border-color);
+    padding: 12px 18px calc(20px + var(--sab)) 18px;
+    z-index: 950;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.25);
+    animation: slideUpBottom 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 14px;
+  }
+
+  .settings-header-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 2px;
+  }
+
+  .settings-drag-handle {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background-color: var(--border-color);
+    margin-bottom: 8px;
+  }
+
+  .settings-header-title-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .settings-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .settings-close-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    background-color: var(--bg-tertiary);
+    cursor: pointer;
+  }
+
+  .settings-close-btn:hover,
+  .settings-close-btn:active {
+    background-color: var(--bg-active-hover);
+    color: var(--text-primary);
+  }
+
+  .theme-selector-grid {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+  }
+
+  .theme-pill {
+    padding: 8px 4px;
+    font-size: 11px;
+    min-height: 36px;
+  }
+
+  .segmented-btn {
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .settings-select {
+    height: 40px;
+    font-size: 14px;
+  }
+
+  .stepper-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .settings-slider {
+    height: 6px;
+  }
+
+  .settings-slider::-webkit-slider-thumb {
+    width: 22px;
+    height: 22px;
+  }
+
+  .toggle-switch {
+    width: 44px;
+    height: 24px;
+  }
+
+  .toggle-thumb {
+    width: 20px;
+    height: 20px;
+  }
+
+  .toggle-switch.checked .toggle-thumb {
+    transform: translateX(20px);
+  }
 }
 
 /* ==========================================================================

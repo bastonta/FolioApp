@@ -1,10 +1,13 @@
-import { Library, PanelLeft, Pin, PinOff } from "lucide-react";
+import { Library, PanelLeft, Pin, PinOff, Sliders } from "lucide-react";
 import React from "react";
 
 interface HeaderBarProps {
   onBackToLibrary: () => void;
   onToggleSidebar: () => void;
   isSidebarOpen: boolean;
+  onToggleSettings?: () => void;
+  isSettingsOpen?: boolean;
+  settingsBtnRef?: React.RefObject<HTMLButtonElement | null>;
   onTogglePin?: () => void;
   isPinned?: boolean;
   chapterTitle?: string;
@@ -16,6 +19,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onBackToLibrary,
   onToggleSidebar,
   isSidebarOpen,
+  onToggleSettings,
+  isSettingsOpen = false,
+  settingsBtnRef,
   onTogglePin,
   isPinned = false,
   chapterTitle,
@@ -61,7 +67,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         {onTogglePin && (
           <button
             type="button"
-            className={`header-icon-btn ${isPinned ? "active" : ""}`}
+            className={`header-icon-btn header-pin-btn ${isPinned ? "active" : ""}`}
             onClick={onTogglePin}
             title={isPinned ? "Unpin Sidebar" : "Pin Sidebar"}
             aria-label={isPinned ? "Unpin Sidebar" : "Pin Sidebar"}
@@ -77,7 +83,24 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           <span className="header-chapter-name">{chapterTitle}</span>
         )}
       </div>
+
+      {/* Right Header Actions */}
+      <div className="header-right-actions">
+        {onToggleSettings && (
+          <button
+            type="button"
+            ref={settingsBtnRef}
+            className={`header-icon-btn ${isSettingsOpen ? "active" : ""}`}
+            onClick={onToggleSettings}
+            title="Appearance & Settings"
+            aria-label="Appearance & Settings"
+          >
+            <Sliders size={16} />
+          </button>
+        )}
+      </div>
     </header>
   );
 };
+
 
