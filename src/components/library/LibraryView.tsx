@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { RecentBook } from '../../types/reader';
 import {
   BookOpen,
@@ -8,12 +8,22 @@ import {
   Clock,
   Sparkles,
 } from 'lucide-react';
+import {
+  loadBookBlob,
+  loadBookCover,
+  storeBookCover,
+  blobToThumbnailDataUrl,
+  updateRecentBookMetadata,
+  formatLanguageMap,
+  formatContributor,
+} from '../../services/storage';
 
 interface LibraryViewProps {
   recentBooks: RecentBook[];
   onOpenBookFile: (file: File | Blob, bookMeta?: Partial<RecentBook>) => void;
   onOpenRecentBook: (book: RecentBook) => void;
   onDeleteRecentBook: (id: string) => void;
+  onRefreshRecentBooks?: () => void;
 }
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
@@ -21,9 +31,111 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onOpenBookFile,
   onOpenRecentBook,
   onDeleteRecentBook,
+  onRefreshRecentBooks,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
+
+  // Auto-enrich any existing recent books missing cover or author metadata
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function enrichBooks() {
+      const needsEnrichment = recentBooks.filter(
+        (b) =>
+          !b.coverUrl ||
+          b.coverUrl.startsWith('blob:') ||
+          !b.author ||
+          b.author === 'Unknown Author'
+      );
+
+      if (needsEnrichment.length === 0) return;
+
+      let changed = false;
+
+      for (const book of needsEnrichment) {
+        if (isCancelled) break;
+
+        const missingCover = !book.coverUrl || book.coverUrl.startsWith('blob:');
+        const missingAuthor = !book.author || book.author === 'Unknown Author';
+
+        try {
+          let coverBlob: Blob | null = null;
+          if (missingCover) {
+            coverBlob = await loadBookCover(book.id);
+          }
+
+          let newTitle = book.title;
+          let newAuthor = book.author;
+
+          if (!coverBlob || missingAuthor) {
+            const bookBlob = await loadBookBlob(book.id);
+            if (bookBlob) {
+              try {
+                const { makeBook } = await import('../../foliate-js/view.js');
+                const parsedBook: any = await makeBook(bookBlob);
+                if (parsedBook) {
+                  if (parsedBook.metadata?.title) {
+                    newTitle = formatLanguageMap(parsedBook.metadata.title) || newTitle;
+                  }
+                  if (parsedBook.metadata?.author || parsedBook.metadata?.creator) {
+                    newAuthor =
+                      formatContributor(
+                        parsedBook.metadata.author || parsedBook.metadata.creator
+                      ) || newAuthor;
+                  }
+                  if (!coverBlob && parsedBook.getCover) {
+                    coverBlob = await Promise.resolve(parsedBook.getCover());
+                    if (coverBlob) {
+                      await storeBookCover(book.id, coverBlob);
+                    }
+                  }
+                  parsedBook.destroy?.();
+                }
+              } catch (e) {
+                console.warn('Failed parsing book for metadata:', e);
+              }
+            }
+          }
+
+          let thumbUrl =
+            book.coverUrl && !book.coverUrl.startsWith('blob:')
+              ? book.coverUrl
+              : undefined;
+
+          if (coverBlob) {
+            thumbUrl = await blobToThumbnailDataUrl(coverBlob);
+          }
+
+          if (
+            (newTitle && newTitle !== book.title) ||
+            (newAuthor && newAuthor !== book.author) ||
+            (thumbUrl && thumbUrl !== book.coverUrl)
+          ) {
+            updateRecentBookMetadata(book.id, {
+              title: newTitle,
+              author: newAuthor,
+              coverUrl: thumbUrl,
+            });
+            changed = true;
+          }
+        } catch (err) {
+          console.warn('Enrichment error for book', book.id, err);
+        }
+      }
+
+      if (changed && !isCancelled) {
+        onRefreshRecentBooks?.();
+      }
+    }
+
+    enrichBooks();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [recentBooks, onRefreshRecentBooks]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -139,11 +251,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     onClick={() => onOpenRecentBook(book)}
                   >
                     <div className="book-card-cover-wrap">
-                      {book.coverUrl ? (
+                      {book.coverUrl && !failedImages[book.id] ? (
                         <img
                           src={book.coverUrl}
                           alt={book.title}
                           className="book-card-cover"
+                          onError={() =>
+                            setFailedImages((prev) => ({ ...prev, [book.id]: true }))
+                          }
                         />
                       ) : (
                         <div className="book-card-cover-placeholder">

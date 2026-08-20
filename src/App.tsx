@@ -10,6 +10,10 @@ import {
   removeRecentBook,
   storeBookBlob,
   loadBookBlob,
+  storeBookCover,
+  blobToThumbnailDataUrl,
+  formatLanguageMap,
+  formatContributor,
 } from './services/storage';
 import './App.css';
 
@@ -31,6 +35,10 @@ export function App() {
     setSettings(updated);
   };
 
+  const handleRefreshRecentBooks = () => {
+    setRecentBooks(loadRecentBooks());
+  };
+
   // Open book from File / Blob
   const handleOpenBookFile = async (file: File | Blob, meta?: Partial<RecentBook>) => {
     try {
@@ -40,11 +48,39 @@ export function App() {
       // Store in IndexedDB for subsequent sessions
       await storeBookBlob(bookId, file);
 
+      let title = meta?.title || fileName.replace(/\.[^/.]+$/, '');
+      let author = meta?.author || 'Unknown Author';
+      let coverUrl = meta?.coverUrl;
+
+      // Extract metadata & cover eagerly
+      try {
+        const { makeBook } = await import('./foliate-js/view.js');
+        const parsedBook: any = await makeBook(file);
+        if (parsedBook) {
+          if (parsedBook.metadata?.title) {
+            title = formatLanguageMap(parsedBook.metadata.title) || title;
+          }
+          if (parsedBook.metadata?.author || parsedBook.metadata?.creator) {
+            author = formatContributor(parsedBook.metadata.author || parsedBook.metadata.creator) || author;
+          }
+          if (parsedBook.getCover) {
+            const coverBlob = await Promise.resolve(parsedBook.getCover());
+            if (coverBlob) {
+              await storeBookCover(bookId, coverBlob);
+              coverUrl = await blobToThumbnailDataUrl(coverBlob);
+            }
+          }
+          parsedBook.destroy?.();
+        }
+      } catch (e) {
+        console.warn('Initial metadata extraction skipped or failed:', e);
+      }
+
       const recentItem: RecentBook = {
         id: bookId,
-        title: meta?.title || fileName.replace(/\.[^/.]+$/, ''),
-        author: meta?.author || 'Unknown Author',
-        coverUrl: meta?.coverUrl,
+        title,
+        author,
+        coverUrl,
         progressFraction: 0,
         lastOpenedAt: new Date().toISOString(),
         fileName,
@@ -116,6 +152,7 @@ export function App() {
           onOpenBookFile={handleOpenBookFile}
           onOpenRecentBook={handleOpenRecentBook}
           onDeleteRecentBook={handleDeleteRecentBook}
+          onRefreshRecentBooks={handleRefreshRecentBooks}
         />
       )}
     </div>

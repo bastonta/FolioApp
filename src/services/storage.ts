@@ -21,10 +21,11 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   activeTab: 'contents',
 };
 
-// IndexedDB for storing book files
+// IndexedDB for storing book files and covers
 const DB_NAME = 'FolioBookDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'books_files';
+const COVERS_STORE = 'books_covers';
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -33,6 +34,9 @@ function openDB(): Promise<IDBDatabase> {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(COVERS_STORE)) {
+        db.createObjectStore(COVERS_STORE, { keyPath: 'id' });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -86,6 +90,131 @@ export async function deleteBookBlob(id: string): Promise<void> {
   }
 }
 
+export async function storeBookCover(id: string, coverBlob: Blob): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(COVERS_STORE, 'readwrite');
+      const store = tx.objectStore(COVERS_STORE);
+      const req = store.put({ id, data: coverBlob });
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.error('Failed to store cover blob in IndexedDB:', err);
+  }
+}
+
+export async function loadBookCover(id: string): Promise<Blob | null> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(COVERS_STORE, 'readonly');
+      const store = tx.objectStore(COVERS_STORE);
+      const req = store.get(id);
+      req.onsuccess = () => resolve(req.result ? req.result.data : null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.error('Failed to load cover blob from IndexedDB:', err);
+    return null;
+  }
+}
+
+export async function deleteBookCover(id: string): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(COVERS_STORE, 'readwrite');
+      const store = tx.objectStore(COVERS_STORE);
+      const req = store.delete(id);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.error('Failed to delete cover blob from IndexedDB:', err);
+  }
+}
+
+export async function blobToThumbnailDataUrl(
+  blob: Blob,
+  maxWidth = 300,
+  maxHeight = 450
+): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        try {
+          const width = img.naturalWidth || img.width;
+          const height = img.naturalHeight || img.height;
+          if (!width || !height) {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(blob);
+            return;
+          }
+
+          const scale = Math.min(maxWidth / width, maxHeight / height, 1);
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(width * scale));
+          canvas.height = Math.max(1, Math.round(height * scale));
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            resolve(dataUrl);
+          } else {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(blob);
+          }
+        } catch {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(blob);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(blob);
+      };
+      img.src = url;
+    } catch {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(blob);
+    }
+  });
+}
+
+export const formatLanguageMap = (x: any): string => {
+  if (!x) return '';
+  if (typeof x === 'string') return x;
+  const keys = Object.keys(x);
+  return x[keys[0]] || '';
+};
+
+export const formatContributor = (contributor: any): string => {
+  if (!contributor) return '';
+  if (typeof contributor === 'string') return contributor;
+  if (Array.isArray(contributor)) {
+    return contributor
+      .map((c) => (typeof c === 'string' ? c : formatLanguageMap(c?.name || c)))
+      .join(', ');
+  }
+  return formatLanguageMap(contributor?.name || contributor);
+};
+
 // Settings
 export function loadSettings(): ReaderSettings {
   try {
@@ -120,10 +249,33 @@ export function saveRecentBook(book: RecentBook): void {
   localStorage.setItem(RECENT_BOOKS_KEY, JSON.stringify(books));
 }
 
+export function updateRecentBookMetadata(
+  bookId: string,
+  meta: {
+    title?: string;
+    author?: string;
+    coverUrl?: string;
+  }
+): void {
+  try {
+    const recent = loadRecentBooks();
+    const target = recent.find((b) => b.id === bookId);
+    if (target) {
+      if (meta.title && meta.title !== 'Untitled Book') target.title = meta.title;
+      if (meta.author && meta.author !== 'Unknown Author') target.author = meta.author;
+      if (meta.coverUrl) target.coverUrl = meta.coverUrl;
+      localStorage.setItem(RECENT_BOOKS_KEY, JSON.stringify(recent));
+    }
+  } catch (err) {
+    console.error('Failed to update recent book metadata:', err);
+  }
+}
+
 export async function removeRecentBook(id: string): Promise<void> {
   const books = loadRecentBooks().filter((b) => b.id !== id);
   localStorage.setItem(RECENT_BOOKS_KEY, JSON.stringify(books));
   await deleteBookBlob(id);
+  await deleteBookCover(id);
 }
 
 // Book Progress / Location

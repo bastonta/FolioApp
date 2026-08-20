@@ -27,6 +27,9 @@ import {
   loadAnnotations,
   loadBookmarks,
   loadLastLocation,
+  storeBookCover,
+  blobToThumbnailDataUrl,
+  updateRecentBookMetadata,
 } from '../../services/storage';
 
 interface FoliateReaderProps {
@@ -409,13 +412,38 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         const subject = book.metadata?.subject;
 
         let coverUrl: string | undefined;
+        let coverBlob: Blob | null = null;
         try {
-          const coverBlob = await Promise.resolve(book.getCover?.());
+          coverBlob = await Promise.resolve(book.getCover?.());
           if (coverBlob) {
             coverUrl = URL.createObjectURL(coverBlob);
           }
         } catch (e) {
           console.warn('Cover extraction failed:', e);
+        }
+
+        // Persist extracted metadata & cover thumbnail to recent books
+        if (coverBlob) {
+          storeBookCover(bookId, coverBlob).catch(console.error);
+          blobToThumbnailDataUrl(coverBlob)
+            .then((thumbUrl) => {
+              updateRecentBookMetadata(bookId, {
+                title: title !== 'Untitled Book' ? title : undefined,
+                author: author !== 'Unknown Author' ? author : undefined,
+                coverUrl: thumbUrl,
+              });
+            })
+            .catch(() => {
+              updateRecentBookMetadata(bookId, {
+                title: title !== 'Untitled Book' ? title : undefined,
+                author: author !== 'Unknown Author' ? author : undefined,
+              });
+            });
+        } else {
+          updateRecentBookMetadata(bookId, {
+            title: title !== 'Untitled Book' ? title : undefined,
+            author: author !== 'Unknown Author' ? author : undefined,
+          });
         }
 
         const metaObj: BookMetadata = {
