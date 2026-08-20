@@ -67,18 +67,7 @@ export interface ReaderSettings {
   theme: ThemeName;
   sidebarPinned: boolean;
   sidebarOpen: boolean;
-  activeTab: 'contents' | 'annotations' | 'bookmarks' | 'search';
-}
-
-export interface SearchResultItem {
-  cfi: string;
-  excerpt: string;
-}
-
-export interface SearchResultGroup {
-  index: number;
-  label: string;
-  subitems: SearchResultItem[];
+  activeTab: 'contents' | 'annotations' | 'bookmarks';
 }
 
 export interface FootnoteData {

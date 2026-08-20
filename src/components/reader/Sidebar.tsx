@@ -1,9 +1,8 @@
 import React from 'react';
-import { BookMetadata, TOCItem, Annotation, Bookmark, SearchResultGroup } from '../../types/reader';
+import { BookMetadata, TOCItem, Annotation, Bookmark } from '../../types/reader';
 import { TOCView } from './TOCView';
 import { AnnotationsView } from './AnnotationsView';
 import { BookmarksView } from './BookmarksView';
-import { SearchView } from './SearchView';
 import {
   List,
   Edit3,
@@ -18,8 +17,8 @@ interface SidebarProps {
   isOpen: boolean;
   isPinned: boolean;
   onTogglePin?: () => void;
-  activeTab: 'contents' | 'annotations' | 'bookmarks' | 'search';
-  onTabChange: (tab: 'contents' | 'annotations' | 'bookmarks' | 'search') => void;
+  activeTab: 'contents' | 'annotations' | 'bookmarks';
+  onTabChange: (tab: 'contents' | 'annotations' | 'bookmarks') => void;
   metadata: BookMetadata | null;
   toc: TOCItem[];
   currentHref: string | null;
@@ -31,12 +30,6 @@ interface SidebarProps {
   onSelectBookmark: (bookmark: Bookmark) => void;
   onDeleteBookmark: (id: string) => void;
   onAddCurrentBookmark: () => void;
-  searchResults: SearchResultGroup[];
-  isSearching: boolean;
-  searchProgress: number;
-  onSearch: (query: string) => void;
-  onClearSearch: () => void;
-  onSelectSearchResult: (cfi: string) => void;
   onOpenBookInfo: () => void;
 }
 
@@ -57,12 +50,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectBookmark,
   onDeleteBookmark,
   onAddCurrentBookmark,
-  searchResults,
-  isSearching,
-  searchProgress,
-  onSearch,
-  onClearSearch,
-  onSelectSearchResult,
   onOpenBookInfo,
 }) => {
   if (!isOpen) return null;
@@ -143,17 +130,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onSelectBookmark={onSelectBookmark}
             onDeleteBookmark={onDeleteBookmark}
             onAddCurrentBookmark={onAddCurrentBookmark}
-          />
-        )}
-
-        {activeTab === 'search' && (
-          <SearchView
-            onSearch={onSearch}
-            onClearSearch={onClearSearch}
-            results={searchResults}
-            isSearching={isSearching}
-            searchProgress={searchProgress}
-            onSelectResult={onSelectSearchResult}
           />
         )}
       </div>

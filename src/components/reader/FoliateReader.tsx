@@ -7,7 +7,6 @@ import {
   Annotation,
   Bookmark,
   ReaderSettings,
-  SearchResultGroup,
   FootnoteData,
 } from '../../types/reader';
 import { Sidebar } from './Sidebar';
@@ -352,10 +351,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     return () => window.removeEventListener('mousemove', handleWindowMouseMove);
   }, [showControls, scheduleAutoHide]);
 
-  // Search state
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchProgress, setSearchProgress] = useState(0);
-  const [searchResults, setSearchResults] = useState<SearchResultGroup[]>([]);
 
   // Update styling in foliate-view
   const applyStyles = useCallback(() => {
@@ -560,7 +555,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
           if (overlayer) {
             const [val, rng] = overlayer.hitTest({ x: ev.clientX, y: ev.clientY });
-            if (val && !val.startsWith('foliate-search:')) {
+            if (val) {
               hitAnnotationCfi = val;
               hitRange = rng;
             }
@@ -1052,44 +1047,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     }
   };
 
-  // Search management
-  const handleSearch = async (query: string) => {
-    if (!viewRef.current || !query.trim()) return;
-    setIsSearching(true);
-    setSearchProgress(0);
-    setSearchResults([]);
-
-    try {
-      for await (const result of viewRef.current.search({ query })) {
-        if (result === 'done') break;
-        if (result.progress != null) {
-          setSearchProgress(result.progress);
-        }
-        if (result.subitems && result.subitems.length > 0) {
-          setSearchResults((prev) => [...prev, result]);
-        }
-      }
-    } catch (err) {
-      console.error('Search error:', err);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  const handleClearSearch = () => {
-    viewRef.current?.clearSearch();
-    setSearchResults([]);
-    setIsSearching(false);
-    setSearchProgress(0);
-  };
-
-  const handleSelectSearchResult = (cfi: string) => {
-    viewRef.current?.goTo(cfi);
-    if (!settings.sidebarPinned) {
-      onUpdateSettings({ sidebarOpen: false });
-    }
-  };
-
   return (
     <div
       className={`foliate-reader-root theme-${settings.theme} ${
@@ -1105,14 +1062,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           })
         }
         isSidebarOpen={settings.sidebarOpen}
-        onToggleSearch={() => {
-          const nextTab = settings.activeTab === 'search' ? 'contents' : 'search';
-          onUpdateSettings({
-            activeTab: nextTab,
-            sidebarOpen: true,
-          });
-        }}
-        isSearchActive={settings.sidebarOpen && settings.activeTab === 'search'}
         onTogglePin={() =>
           onUpdateSettings({
             sidebarPinned: !settings.sidebarPinned,
@@ -1164,12 +1113,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           onSelectBookmark={handleSelectBookmark}
           onDeleteBookmark={handleDeleteBookmark}
           onAddCurrentBookmark={handleAddCurrentBookmark}
-          searchResults={searchResults}
-          isSearching={isSearching}
-          searchProgress={searchProgress}
-          onSearch={handleSearch}
-          onClearSearch={handleClearSearch}
-          onSelectSearchResult={handleSelectSearchResult}
           onOpenBookInfo={() => setIsBookInfoOpen(true)}
         />
 

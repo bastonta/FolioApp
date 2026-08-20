@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React from 'react';
 import { Annotation } from '../../types/reader';
-import { Trash2, Search, Highlighter } from 'lucide-react';
+import { Trash2, Highlighter } from 'lucide-react';
 
 interface AnnotationsViewProps {
   annotations: Annotation[];
@@ -13,34 +13,17 @@ export const AnnotationsView: React.FC<AnnotationsViewProps> = ({
   onSelectAnnotation,
   onDeleteAnnotation,
 }) => {
-  const [filterQuery, setFilterQuery] = useState('');
-
-  const filteredAnnotations = useMemo(() => {
-    if (!filterQuery.trim()) return annotations;
-    const q = filterQuery.toLowerCase();
-    return annotations.filter(
-      (a) =>
-        a.text.toLowerCase().includes(q) ||
-        (a.note && a.note.toLowerCase().includes(q)) ||
-        (a.chapterTitle && a.chapterTitle.toLowerCase().includes(q))
-    );
-  }, [annotations, filterQuery]);
-
   return (
     <div className="annotations-view-container">
       <div className="annotations-list-scroll">
-        {filteredAnnotations.length === 0 ? (
+        {annotations.length === 0 ? (
           <div className="sidebar-empty-state">
             <Highlighter size={28} className="empty-state-icon" />
-            <p>
-              {filterQuery.trim()
-                ? 'No matching annotations found.'
-                : 'No annotations yet. Select text in the book to highlight or add notes.'}
-            </p>
+            <p>No annotations yet. Select text in the book to highlight or add notes.</p>
           </div>
         ) : (
           <div className="annotations-cards-list">
-            {filteredAnnotations.map((ann) => (
+            {annotations.map((ann) => (
               <div
                 key={ann.id || ann.value}
                 className="annotation-card"
@@ -87,29 +70,6 @@ export const AnnotationsView: React.FC<AnnotationsViewProps> = ({
             ))}
           </div>
         )}
-      </div>
-
-      {/* Filter bar at bottom matching screenshot 3 */}
-      <div className="annotations-filter-bar">
-        <div className="filter-input-wrap">
-          <Search size={14} className="filter-search-icon" />
-          <input
-            type="text"
-            className="filter-input"
-            placeholder="Filter annotations..."
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-          />
-          {filterQuery && (
-            <button
-              type="button"
-              className="filter-clear-btn"
-              onClick={() => setFilterQuery('')}
-            >
-              ×
-            </button>
-          )}
-        </div>
       </div>
     </div>
   );

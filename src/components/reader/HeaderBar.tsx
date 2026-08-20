@@ -1,12 +1,10 @@
-import { Library, PanelLeft, Pin, PinOff, Search } from "lucide-react";
+import { Library, PanelLeft, Pin, PinOff } from "lucide-react";
 import React from "react";
 
 interface HeaderBarProps {
   onBackToLibrary: () => void;
   onToggleSidebar: () => void;
   isSidebarOpen: boolean;
-  onToggleSearch: () => void;
-  isSearchActive: boolean;
   onTogglePin?: () => void;
   isPinned?: boolean;
   chapterTitle?: string;
@@ -18,8 +16,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onBackToLibrary,
   onToggleSidebar,
   isSidebarOpen,
-  onToggleSearch,
-  isSearchActive,
   onTogglePin,
   isPinned = false,
   chapterTitle,
@@ -73,19 +69,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             {isPinned ? <Pin size={16} /> : <PinOff size={16} />}
           </button>
         )}
-
-        <div className="header-separator" />
-
-        {/* Search in Book */}
-        <button
-          type="button"
-          className={`header-icon-btn ${isSearchActive ? "active" : ""}`}
-          onClick={onToggleSearch}
-          title="Search in Book"
-          aria-label="Search"
-        >
-          <Search size={16} />
-        </button>
       </div>
 
       {/* Center Running Head Title */}
