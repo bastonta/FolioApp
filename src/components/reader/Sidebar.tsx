@@ -1,0 +1,174 @@
+import React from 'react';
+import { BookMetadata, TOCItem, Annotation, Bookmark, SearchResultGroup } from '../../types/reader';
+import { TOCView } from './TOCView';
+import { AnnotationsView } from './AnnotationsView';
+import { BookmarksView } from './BookmarksView';
+import { SearchView } from './SearchView';
+import {
+  List,
+  Edit3,
+  Bookmark as BookmarkIcon,
+  Info,
+  BookOpen,
+} from 'lucide-react';
+
+interface SidebarProps {
+  isOpen: boolean;
+  isPinned: boolean;
+  activeTab: 'contents' | 'annotations' | 'bookmarks' | 'search';
+  onTabChange: (tab: 'contents' | 'annotations' | 'bookmarks' | 'search') => void;
+  metadata: BookMetadata | null;
+  toc: TOCItem[];
+  currentHref: string | null;
+  onSelectTOC: (href: string) => void;
+  annotations: Annotation[];
+  onSelectAnnotation: (annotation: Annotation) => void;
+  onDeleteAnnotation: (value: string) => void;
+  bookmarks: Bookmark[];
+  onSelectBookmark: (bookmark: Bookmark) => void;
+  onDeleteBookmark: (id: string) => void;
+  onAddCurrentBookmark: () => void;
+  searchResults: SearchResultGroup[];
+  isSearching: boolean;
+  searchProgress: number;
+  onSearch: (query: string) => void;
+  onClearSearch: () => void;
+  onSelectSearchResult: (cfi: string) => void;
+  onOpenBookInfo: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({
+  isOpen,
+  isPinned,
+  activeTab,
+  onTabChange,
+  metadata,
+  toc,
+  currentHref,
+  onSelectTOC,
+  annotations,
+  onSelectAnnotation,
+  onDeleteAnnotation,
+  bookmarks,
+  onSelectBookmark,
+  onDeleteBookmark,
+  onAddCurrentBookmark,
+  searchResults,
+  isSearching,
+  searchProgress,
+  onSearch,
+  onClearSearch,
+  onSelectSearchResult,
+  onOpenBookInfo,
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <aside className={`sidebar-container ${isPinned ? 'pinned' : 'floating'}`}>
+      {/* Book Metadata Header matching Screenshot 1 */}
+      <div className="sidebar-book-header">
+        <div className="sidebar-book-cover-wrap">
+          {metadata?.coverUrl ? (
+            <img
+              src={metadata.coverUrl}
+              alt={metadata.title || 'Book Cover'}
+              className="sidebar-book-cover"
+            />
+          ) : (
+            <div className="sidebar-book-cover-placeholder">
+              <BookOpen size={24} />
+            </div>
+          )}
+        </div>
+
+        <div className="sidebar-book-info">
+          <h4 className="sidebar-book-title" title={metadata?.title}>
+            {metadata?.title || 'Untitled'}
+          </h4>
+          <p className="sidebar-book-author" title={metadata?.author}>
+            {metadata?.author || 'Unknown Author'}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          className="sidebar-info-btn"
+          onClick={onOpenBookInfo}
+          title="Book Details"
+          aria-label="Book Details"
+        >
+          <Info size={16} />
+        </button>
+      </div>
+
+      {/* Tab Content Body */}
+      <div className="sidebar-content-body">
+        {activeTab === 'contents' && (
+          <TOCView
+            toc={toc}
+            currentHref={currentHref}
+            onSelect={onSelectTOC}
+          />
+        )}
+
+        {activeTab === 'annotations' && (
+          <AnnotationsView
+            annotations={annotations}
+            onSelectAnnotation={onSelectAnnotation}
+            onDeleteAnnotation={onDeleteAnnotation}
+          />
+        )}
+
+        {activeTab === 'bookmarks' && (
+          <BookmarksView
+            bookmarks={bookmarks}
+            onSelectBookmark={onSelectBookmark}
+            onDeleteBookmark={onDeleteBookmark}
+            onAddCurrentBookmark={onAddCurrentBookmark}
+          />
+        )}
+
+        {activeTab === 'search' && (
+          <SearchView
+            onSearch={onSearch}
+            onClearSearch={onClearSearch}
+            results={searchResults}
+            isSearching={isSearching}
+            searchProgress={searchProgress}
+            onSelectResult={onSelectSearchResult}
+          />
+        )}
+      </div>
+
+      {/* Bottom Tabs Switcher matching Screenshots 1 & 3 */}
+      <nav className="sidebar-bottom-nav" aria-label="Sidebar navigation">
+        <button
+          type="button"
+          className={`sidebar-nav-tab ${activeTab === 'contents' ? 'active' : ''}`}
+          onClick={() => onTabChange('contents')}
+        >
+          <List size={16} />
+          <span>Contents</span>
+        </button>
+
+        <button
+          type="button"
+          className={`sidebar-nav-tab ${activeTab === 'annotations' ? 'active' : ''}`}
+          onClick={() => onTabChange('annotations')}
+        >
+          <Edit3 size={16} />
+          <span>Annotations</span>
+        </button>
+
+        <button
+          type="button"
+          className={`sidebar-nav-tab ${activeTab === 'bookmarks' ? 'active' : ''}`}
+          onClick={() => onTabChange('bookmarks')}
+        >
+          <BookmarkIcon size={16} />
+          <span>Bookmarks</span>
+        </button>
+      </nav>
+    </aside>
+  );
+};
