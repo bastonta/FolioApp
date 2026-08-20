@@ -15,7 +15,7 @@ import { ProgressScrubber } from './ProgressScrubber';
 import { FootnoteModal } from './FootnoteModal';
 import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
 import { BookInfoModal } from './BookInfoModal';
-import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode } from '../../services/systemUi';
+import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu } from '../../services/systemUi';
 import {
   saveLastLocation,
   saveAnnotation,
@@ -388,6 +388,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   // Helper to clear text selections across all reader documents
   const clearAllSelections = useCallback(() => {
     try {
+      dismissOriginalContextMenu();
       const contents = viewRef.current?.renderer?.getContents() || [];
       for (const item of contents) {
         item.doc?.defaultView?.getSelection()?.removeAllRanges();
@@ -426,11 +427,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         const detail = e.detail || {};
         const fraction = detail.fraction ?? 0;
         setProgressFraction(fraction);
-
-        if (selectionRef.current) {
-          setSelection(null);
-          clearAllSelections();
-        }
 
         if (detail.cfi) {
           setCurrentCFI(detail.cfi);
@@ -475,6 +471,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
         // Pointerdown / mousedown on free space inside doc dismisses popover & selection
         doc.addEventListener('pointerdown', (ev: PointerEvent) => {
+          dismissOriginalContextMenu();
           if (selectionRef.current) {
             const contents = view.renderer?.getContents() || [];
             const currentContent = contents.find((c: any) => c.index === index && c.overlayer);
@@ -969,6 +966,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
   // TOC Navigation
   const handleSelectTOC = (href: string) => {
+    if (selectionRef.current) {
+      setSelection(null);
+      clearAllSelections();
+    }
     viewRef.current?.goTo(href);
     if (!settings.sidebarPinned) {
       onUpdateSettings({ sidebarOpen: false });
@@ -1041,6 +1042,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   };
 
   const handleSelectBookmark = (bm: Bookmark) => {
+    if (selectionRef.current) {
+      setSelection(null);
+      clearAllSelections();
+    }
     viewRef.current?.goTo(bm.cfi);
     if (!settings.sidebarPinned) {
       onUpdateSettings({ sidebarOpen: false });
@@ -1120,18 +1125,21 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         <main
           className="reader-canvas-area"
           onClick={() => {
+            dismissOriginalContextMenu();
             if (!settings.sidebarPinned && settings.sidebarOpen) {
               onUpdateSettings({ sidebarOpen: false });
             }
           }}
           onContextMenu={(e) => {
             e.preventDefault();
+            dismissOriginalContextMenu();
             if (selectionRef.current) {
               setSelection(null);
               clearAllSelections();
             }
           }}
           onPointerDown={() => {
+            dismissOriginalContextMenu();
             if (selectionRef.current) {
               setSelection(null);
               clearAllSelections();
@@ -1145,7 +1153,13 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           <ProgressScrubber
             fraction={progressFraction}
             locationLabel={locationLabel}
-            onSeek={(frac) => viewRef.current?.goToFraction(frac)}
+            onSeek={(frac) => {
+              if (selectionRef.current) {
+                setSelection(null);
+                clearAllSelections();
+              }
+              viewRef.current?.goToFraction(frac);
+            }}
             onPrev={() => viewRef.current?.goLeft()}
             onNext={() => viewRef.current?.goRight()}
             sectionFractions={sectionFractions}
@@ -1167,6 +1181,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         onClose={() => {
           setSelection(null);
           clearAllSelections();
+        }}
+        onShowOriginalMenu={() => {
+          setSelection(null);
         }}
         onSave={handleSaveAnnotation}
         onDelete={handleDeleteAnnotation}

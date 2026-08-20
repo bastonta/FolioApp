@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Annotation, ANNOTATION_COLORS } from '../../types/reader';
-import { Copy, Trash2, Check, MessageSquare } from 'lucide-react';
+import { Copy, Trash2, Check, MessageSquare, MoreHorizontal } from 'lucide-react';
+import { showOriginalContextMenu, isMobileDevice } from '../../services/systemUi';
 
 export interface SelectionInfo {
   text: string;
@@ -13,6 +14,7 @@ export interface SelectionInfo {
 interface AnnotationPopoverProps {
   selection: SelectionInfo | null;
   onClose: () => void;
+  onShowOriginalMenu?: () => void;
   onSave: (annotation: {
     value: string;
     text: string;
@@ -27,6 +29,7 @@ interface AnnotationPopoverProps {
 export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
   selection,
   onClose,
+  onShowOriginalMenu,
   onSave,
   onDelete,
 }) => {
@@ -34,6 +37,7 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
   const [showNoteInput, setShowNoteInput] = useState<boolean>(false);
   const [noteText, setNoteText] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
+  const isMobile = isMobileDevice();
 
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -76,6 +80,16 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
     }
   };
 
+  const handleShowOriginalMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    showOriginalContextMenu(selection.text, selection.rect);
+    if (onShowOriginalMenu) {
+      onShowOriginalMenu();
+    } else {
+      onClose();
+    }
+  };
+
   const handleSave = (color = selectedColor) => {
     onSave({
       value: selection.cfi,
@@ -94,8 +108,11 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
 
   let top = selection.rect.y - popoverHeight - 8;
   if (top < 10) {
-    top = Math.min(window.innerHeight - popoverHeight - 10, selection.rect.y + selection.rect.height + 8);
+    top = selection.rect.y + selection.rect.height + 8;
   }
+  // Ensure popover stays within screen bounds (especially when virtual keyboard opens)
+  top = Math.max(10, Math.min(window.innerHeight - popoverHeight - 10, top));
+
   let left = selection.rect.x + selection.rect.width / 2 - popoverWidth / 2;
   left = Math.max(10, Math.min(window.innerWidth - popoverWidth - 10, left));
 
@@ -156,6 +173,19 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
         >
           {copied ? <Check size={16} className="text-success" /> : <Copy size={16} />}
         </button>
+
+        {/* Original System Context Menu button (Mobile only) */}
+        {isMobile && (
+          <button
+            type="button"
+            className="popover-action-btn"
+            onClick={handleShowOriginalMenu}
+            title="Original Context Menu"
+            aria-label="Original Context Menu"
+          >
+            <MoreHorizontal size={16} />
+          </button>
+        )}
 
         {/* Delete button (if existing annotation) */}
         {selection.existingAnnotation && onDelete && (

@@ -49,6 +49,45 @@ export function setDisableSystemActionMode(disable: boolean): void {
 }
 
 /**
+ * Show the original system context menu (Android ActionMode with Copy, Share, Web Search, Translate, etc.)
+ */
+export function showOriginalContextMenu(
+  text: string,
+  rect: { x: number; y: number; width: number; height: number }
+): void {
+  try {
+    const androidBridge = (window as any).AndroidBridge;
+    if (androidBridge && typeof androidBridge.showOriginalContextMenu === 'function') {
+      androidBridge.showOriginalContextMenu(text, rect.x, rect.y, rect.width, rect.height);
+      return;
+    }
+  } catch (e) {
+    console.warn('AndroidBridge showOriginalContextMenu error:', e);
+  }
+
+  // Web / Desktop fallback
+  if (navigator.share) {
+    navigator.share({ text }).catch(() => {});
+  } else {
+    window.open(`https://www.google.com/search?q=${encodeURIComponent(text)}`, '_blank');
+  }
+}
+
+/**
+ * Dismiss the original system context menu if currently shown
+ */
+export function dismissOriginalContextMenu(): void {
+  try {
+    const androidBridge = (window as any).AndroidBridge;
+    if (androidBridge && typeof androidBridge.dismissOriginalContextMenu === 'function') {
+      androidBridge.dismissOriginalContextMenu();
+    }
+  } catch (e) {
+    console.warn('AndroidBridge dismissOriginalContextMenu error:', e);
+  }
+}
+
+/**
  * Utility to control System UI / Status Bar (Clock & Battery) across platforms
  */
 
