@@ -150,6 +150,17 @@ button {
   z-index: 100;
   user-select: none;
   flex-shrink: 0;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+}
+
+.controls-hidden .reader-header-bar {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
 }
 
 .header-left-actions {
@@ -220,6 +231,11 @@ button {
   height: calc(100vh - 48px);
   position: relative;
   overflow: hidden;
+  transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.controls-hidden .reader-workspace {
+  height: 100vh;
 }
 
 /* ==========================================================================
@@ -243,6 +259,19 @@ button {
   bottom: 0;
   left: 0;
   box-shadow: var(--shadow-lg);
+  z-index: 50;
+}
+
+.sidebar-floating-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  background-color: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(1px);
+  animation: fadeIn 0.15s ease-out;
 }
 
 /* Book Header inside Sidebar (Screenshot 1) */
@@ -859,6 +888,18 @@ foliate-view::part(foot) {
   flex-shrink: 0;
   z-index: 10;
   user-select: none;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, margin-bottom 0.25s ease;
+}
+
+.controls-hidden .reader-footer-bar {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+  margin-bottom: -38px;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
 }
 
 .footer-nav-btn {
@@ -916,6 +957,33 @@ foliate-view::part(foot) {
   color: var(--text-muted);
 }
 
+/* Floating Show Controls Button when hidden */
+.reader-floating-show-btn {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-md);
+  z-index: 90;
+  opacity: 0.65;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease, transform 0.15s ease, background-color 0.15s ease;
+}
+
+.reader-floating-show-btn:hover {
+  opacity: 1;
+  transform: scale(1.08);
+  background-color: var(--bg-active-pill);
+  color: var(--text-primary);
+}
+
 /* ==========================================================================
    Footnote / Endnote Modal (Screenshot 2)
    ========================================================================== */
@@ -925,26 +993,28 @@ foliate-view::part(foot) {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(2px);
+  background-color: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   padding: 20px;
+  animation: fadeIn 0.15s ease-out;
 }
 
 .footnote-modal-box {
   width: 100%;
-  max-width: 440px;
-  background-color: var(--bg-primary);
+  max-width: 480px;
+  background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: modalPop 0.15s ease-out;
+  animation: modalPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  color: var(--text-primary);
 }
 
 @keyframes modalPop {
@@ -959,14 +1029,32 @@ foliate-view::part(foot) {
 }
 
 .footnote-modal-header {
-  padding: 14px 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border-subtle);
-  text-align: center;
+  background-color: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .footnote-modal-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
+  color: var(--text-primary);
+}
+
+.footnote-close-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.footnote-close-btn:hover {
+  background-color: var(--bg-tertiary);
   color: var(--text-primary);
 }
 
@@ -975,8 +1063,17 @@ foliate-view::part(foot) {
   font-size: 14px;
   line-height: 1.6;
   color: var(--text-primary);
-  max-height: 320px;
+  max-height: 55vh;
   overflow-y: auto;
+  user-select: text;
+}
+
+.footnote-modal-body p {
+  margin-bottom: 8px;
+}
+
+.footnote-modal-body p:last-child {
+  margin-bottom: 0;
 }
 
 .footnote-modal-footer {
@@ -984,6 +1081,7 @@ foliate-view::part(foot) {
   border-top: 1px solid var(--border-subtle);
   background-color: var(--bg-secondary);
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
 }
@@ -993,6 +1091,9 @@ foliate-view::part(foot) {
   border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .footnote-btn-secondary {

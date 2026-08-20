@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Sliders } from 'lucide-react';
 import '../../foliate-js/view.js';
-import { FootnoteHandler } from '../../foliate-js/footnotes.js';
 import { Overlayer } from '../../foliate-js/overlayer.js';
 import {
   BookMetadata,
@@ -53,6 +53,115 @@ const formatContributor = (contributor: any): string => {
       .join(', ');
   }
   return formatLanguageMap(contributor?.name || contributor);
+};
+
+export const isFootnoteOrEndnoteLink = (a: Element | null, href: string): boolean => {
+  if (!a && !href) return false;
+  const typeAttr =
+    a?.getAttributeNS?.('http://www.idpf.org/2007/ops', 'type') ||
+    a?.getAttribute?.('epub:type') ||
+    '';
+  const roleAttr = a?.getAttribute?.('role') || '';
+  const classAttr = a?.getAttribute?.('class') || '';
+
+  const isNoteRefType = /\b(noteref|footnote|endnote|rearnote|note|biblioref|glossref|annotation)\b/i.test(typeAttr);
+  const isNoteRefRole = /\b(doc-noteref|doc-footnote|doc-endnote|doc-biblioentry|doc-glossref)\b/i.test(roleAttr);
+  const isNoteClass = /\b(footnote|endnote|noteref|footnote-ref|fn-ref|duokan-footnote|sdfootnoteanc|reference)\b/i.test(classAttr);
+
+  if (isNoteRefType || isNoteRefRole || isNoteClass) return true;
+
+  const isSup =
+    a?.matches?.('sup, sub') ||
+    a?.closest?.('sup, sub') !== null ||
+    a?.querySelector?.('sup, sub') !== null;
+
+  const hash = href.includes('#') ? href.split('#')[1] : '';
+  if (hash) {
+    const isNoteHash = /^(note|fn|footnote|endnote|rearnote|comment|n_|fn_|c_|ref_|annotation|sdfootnote|\d+)/i.test(hash);
+    if (isNoteHash) return true;
+  }
+
+  const text = a?.textContent?.trim() || '';
+  const isShortNoteText = /^(\[?\d+\]?|\(\d+\)|\*+|†|‡|\[[a-zA-Z]\]|\([a-zA-Z]\))$/i.test(text);
+
+  if (isSup && (hash || isShortNoteText)) return true;
+  if (isShortNoteText && hash) return true;
+
+  return false;
+};
+
+export const extractFootnoteData = async (
+  book: any,
+  href: string,
+  a?: Element | null
+): Promise<FootnoteData | null> => {
+  if (!book || !href) return null;
+  try {
+    const target = await Promise.resolve(book.resolveHref(href));
+    if (!target) return null;
+
+    const { index, anchor } = target;
+    const section = book.sections?.[index];
+    if (!section) return null;
+
+    const doc = await section.createDocument();
+    if (!doc) return null;
+
+    let targetEl: HTMLElement | null = null;
+    if (typeof anchor === 'function') {
+      try {
+        targetEl = anchor(doc);
+      } catch (e) {
+        console.warn('anchor(doc) error:', e);
+      }
+    }
+
+    if (!targetEl && href.includes('#')) {
+      const hash = href.split('#')[1];
+      if (hash) {
+        targetEl =
+          doc.getElementById(hash) ||
+          doc.querySelector(`[name="${hash}"]`) ||
+          doc.querySelector(`[id="${CSS.escape(hash)}"]`) ||
+          doc.querySelector(`a[name="${hash}"]`);
+      }
+    }
+
+    if (!targetEl) return null;
+
+    // If inline element, climb up to enclosing block
+    let blockEl: HTMLElement = targetEl;
+    const inlineTagNames = new Set(['A', 'SPAN', 'SUP', 'SUB', 'EM', 'STRONG', 'I', 'B', 'SMALL', 'BIG', 'FONT', 'TT']);
+    while (
+      blockEl.parentElement &&
+      blockEl.parentElement !== doc.body &&
+      inlineTagNames.has(blockEl.tagName.toUpperCase())
+    ) {
+      blockEl = blockEl.parentElement;
+    }
+
+    // Clone to sanitize/strip backlink anchors
+    const clone = blockEl.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll(
+      'a[role*="doc-backlink"], a[epub\\:type*="backlink"], a[class*="backlink"], a[class*="return"], .footnote-back, .backlink'
+    ).forEach((el) => el.remove());
+
+    const contentHtml = clone.innerHTML.trim() || clone.textContent?.trim() || '';
+    if (!contentHtml) return null;
+
+    const linkText = a?.textContent?.trim() || '';
+    const title = linkText ? `Note ${linkText}` : 'Note';
+
+    return {
+      title,
+      contentHtml,
+      href,
+      target: targetEl,
+    };
+  } catch (err) {
+    console.warn('Error extracting footnote data:', err);
+    return null;
+  }
 };
 
 const getReaderCSS = (settings: ReaderSettings) => {
@@ -118,7 +227,13 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<any>(null);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
+  const settingsRef = useRef(settings);
 
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  const [showControls, setShowControls] = useState<boolean>(true);
   const [metadata, setMetadata] = useState<BookMetadata | null>(null);
   const [toc, setTOC] = useState<TOCItem[]>([]);
   const [currentHref, setCurrentHref] = useState<string | null>(null);
@@ -184,19 +299,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       view.classList.add('foliate-host-element');
       viewerContainerRef.current.appendChild(view);
       viewRef.current = view;
-
-      const footnoteHandler = new FootnoteHandler();
-      footnoteHandler.addEventListener('render', (e: any) => {
-        const { target, href, type } = e.detail;
-        if (target) {
-          setFootnote({
-            title: type === 'endnote' ? 'Endnote' : 'Footnote',
-            contentHtml: target.innerHTML || target.textContent || '',
-            href,
-            target,
-          });
-        }
-      });
 
       try {
         await view.open(bookSource);
@@ -285,6 +387,20 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           setLocationLabel(locText);
         });
 
+        // Footnote / Endnote interception on link events
+        view.addEventListener('link', async (e: any) => {
+          const { a, href } = e.detail || {};
+          if (isFootnoteOrEndnoteLink(a, href)) {
+            e.preventDefault();
+            const noteData = await extractFootnoteData(view.book, href, a);
+            if (noteData) {
+              setFootnote(noteData);
+            } else {
+              view.goTo(href);
+            }
+          }
+        });
+
         // Listen for section load to attach selection and keyboard handlers
         view.addEventListener('load', (e: any) => {
           const { doc, index } = e.detail;
@@ -295,6 +411,22 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               view.goLeft();
             } else if (ev.key === 'ArrowRight' || ev.key === 'l' || ev.key === ' ') {
               view.goRight();
+            } else if (ev.key === 'Escape') {
+              if (selection) {
+                setSelection(null);
+                return;
+              }
+              if (footnote) {
+                setFootnote(null);
+                return;
+              }
+              if (!settingsRef.current.sidebarPinned && settingsRef.current.sidebarOpen) {
+                onUpdateSettings({ sidebarOpen: false });
+                return;
+              }
+              setShowControls((prev) => !prev);
+            } else if (ev.key === 'm' || ev.key === 'M') {
+              setShowControls((prev) => !prev);
             }
           });
 
@@ -330,15 +462,35 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             }
           });
 
-          // Footnote link interception
-          doc.addEventListener('click', (ev: MouseEvent) => {
+          // Click handler inside iframe: footnote opening, unpinned sidebar dismissal, and controls toggle
+          doc.addEventListener('click', async (ev: MouseEvent) => {
+            // 1. If unpinned sidebar is open, clicking dismisses it
+            if (!settingsRef.current.sidebarPinned && settingsRef.current.sidebarOpen) {
+              onUpdateSettings({ sidebarOpen: false });
+              return;
+            }
+
+            // 2. Footnote / endnote link click
             const a = (ev.target as Element)?.closest('a[href]');
             if (a) {
               const href = a.getAttribute('href') || '';
-              footnoteHandler.handle(book, {
-                detail: { a, href },
-                preventDefault: () => ev.preventDefault(),
-              });
+              if (isFootnoteOrEndnoteLink(a, href)) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const noteData = await extractFootnoteData(view.book, href, a);
+                if (noteData) {
+                  setFootnote(noteData);
+                } else {
+                  view.goTo(href);
+                }
+              }
+              return;
+            }
+
+            // 3. Clean click without text selection -> toggle controls
+            const sel = doc.defaultView?.getSelection();
+            if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+              setShowControls((prev) => !prev);
             }
           });
         });
@@ -434,16 +586,35 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
         viewRef.current?.goRight();
       } else if (e.key === 'Escape') {
-        setSelection(null);
-        setIsSettingsOpen(false);
-        setIsBookInfoOpen(false);
-        setFootnote(null);
+        if (selection) {
+          setSelection(null);
+          return;
+        }
+        if (isSettingsOpen) {
+          setIsSettingsOpen(false);
+          return;
+        }
+        if (isBookInfoOpen) {
+          setIsBookInfoOpen(false);
+          return;
+        }
+        if (footnote) {
+          setFootnote(null);
+          return;
+        }
+        if (!settings.sidebarPinned && settings.sidebarOpen) {
+          onUpdateSettings({ sidebarOpen: false });
+          return;
+        }
+        setShowControls((prev) => !prev);
+      } else if (e.key === 'm' || e.key === 'M') {
+        setShowControls((prev) => !prev);
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, []);
+  }, [selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings]);
 
   // TOC Navigation
   const handleSelectTOC = (href: string) => {
@@ -560,7 +731,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   };
 
   return (
-    <div className={`foliate-reader-root theme-${settings.theme}`}>
+    <div
+      className={`foliate-reader-root theme-${settings.theme} ${
+        showControls ? 'controls-visible' : 'controls-hidden'
+      }`}
+    >
       {/* Top Header Bar matching Screenshots 1 & 3 */}
       <HeaderBar
         onBackToLibrary={onBackToLibrary}
@@ -583,10 +758,21 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         isPinned={settings.sidebarPinned}
         chapterTitle={chapterTitle}
         settingsBtnRef={settingsBtnRef}
+        onToggleControls={() => setShowControls((prev) => !prev)}
+        showControls={showControls}
       />
 
       {/* Main Workspace: Sidebar + Reader */}
       <div className="reader-workspace">
+        {/* Floating backdrop for unpinned sidebar */}
+        {!settings.sidebarPinned && settings.sidebarOpen && (
+          <div
+            className="sidebar-floating-backdrop"
+            onClick={() => onUpdateSettings({ sidebarOpen: false })}
+            title="Click to close sidebar"
+          />
+        )}
+
         {/* Foliate Sidebar */}
         <Sidebar
           isOpen={settings.sidebarOpen}
@@ -637,6 +823,19 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         </main>
       </div>
 
+      {/* Floating button to show controls when hidden */}
+      {!showControls && (
+        <button
+          type="button"
+          className="reader-floating-show-btn"
+          onClick={() => setShowControls(true)}
+          title="Show Controls (Click page or Esc)"
+          aria-label="Show Controls"
+        >
+          <Sliders size={15} />
+        </button>
+      )}
+
       {/* Settings Popover */}
       <SettingsPopover
         isOpen={isSettingsOpen}
@@ -654,7 +853,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         onDelete={handleDeleteAnnotation}
       />
 
-      {/* Footnote / Endnote Modal matching Screenshot 2 */}
+      {/* Footnote / Endnote Modal */}
       <FootnoteModal
         footnote={footnote}
         onClose={() => setFootnote(null)}

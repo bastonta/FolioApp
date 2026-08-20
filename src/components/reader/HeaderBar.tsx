@@ -5,6 +5,8 @@ import {
   Sliders,
   Pin,
   PinOff,
+  EyeOff,
+  Eye,
 } from 'lucide-react';
 
 interface HeaderBarProps {
@@ -17,6 +19,8 @@ interface HeaderBarProps {
   isPinned: boolean;
   chapterTitle?: string;
   settingsBtnRef: React.RefObject<HTMLButtonElement | null>;
+  onToggleControls?: () => void;
+  showControls?: boolean;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -29,6 +33,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   isPinned,
   chapterTitle,
   settingsBtnRef,
+  onToggleControls,
+  showControls = true,
 }) => {
   return (
     <header className="reader-header-bar">
@@ -82,7 +88,19 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
       </div>
 
       {/* Right Header space */}
-      <div className="header-right-actions" />
+      <div className="header-right-actions">
+        {onToggleControls && (
+          <button
+            type="button"
+            className="header-icon-btn header-hide-controls-btn"
+            onClick={onToggleControls}
+            title={showControls ? 'Hide Menus / Reading Mode (Click page or Esc)' : 'Show Menus'}
+            aria-label={showControls ? 'Hide Menus' : 'Show Menus'}
+          >
+            {showControls ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        )}
+      </div>
     </header>
   );
 };
