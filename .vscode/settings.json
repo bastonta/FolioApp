@@ -1,9 +1,12 @@
 {
   "cSpell.words": [
     "androidx",
+    "appcompat",
+    "armeabi",
     "cdylib",
     "codegen",
     "folioapp",
+    "proguard",
     "rlib",
     "serde",
     "staticlib",
