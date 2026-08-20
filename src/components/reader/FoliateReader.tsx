@@ -16,7 +16,7 @@ import { ProgressScrubber } from './ProgressScrubber';
 import { FootnoteModal } from './FootnoteModal';
 import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
 import { BookInfoModal } from './BookInfoModal';
-import { setStatusBarVisible, setStatusBarTheme } from '../../services/systemUi';
+import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode } from '../../services/systemUi';
 import {
   saveLastLocation,
   saveAnnotation,
@@ -182,6 +182,7 @@ const getReaderCSS = (settings: ReaderSettings) => {
     html {
       color-scheme: ${settings.theme === 'dark' || settings.theme === 'gray' ? 'dark' : 'light'};
       background-color: ${colors.bg} !important;
+      -webkit-touch-callout: none !important;
     }
     body {
       font-family: ${settings.fontFamily} !important;
@@ -189,6 +190,9 @@ const getReaderCSS = (settings: ReaderSettings) => {
       line-height: ${settings.spacing} !important;
       background-color: ${colors.bg} !important;
       color: ${colors.text} !important;
+      -webkit-touch-callout: none !important;
+      user-select: text !important;
+      -webkit-user-select: text !important;
     }
     p, li, blockquote, dd, div {
       line-height: ${settings.spacing} !important;
@@ -230,12 +234,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const viewRef = useRef<any>(null);
   const settingsRef = useRef(settings);
 
-  // Hide system status bar (clock & battery) while reading, restore on leaving reader
+  // Hide system status bar (clock & battery) and suppress system ActionMode while reading
   useEffect(() => {
     setStatusBarVisible(false);
+    setDisableSystemActionMode(true);
     return () => {
       setStatusBarVisible(true);
       setStatusBarTheme(settingsRef.current.theme);
+      setDisableSystemActionMode(false);
     };
   }, []);
 
@@ -373,6 +379,30 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     applyStyles();
   }, [applyStyles]);
 
+  // Helper to determine viewport offset for iframe contents
+  const getViewportOffset = useCallback((targetDoc?: Document) => {
+    const viewRect = viewerContainerRef.current?.getBoundingClientRect() || { top: 0, left: 0 };
+    const iframe = (targetDoc?.defaultView?.frameElement as HTMLElement) || null;
+    const frameRect = iframe?.getBoundingClientRect();
+    return {
+      left: frameRect ? frameRect.left : viewRect.left,
+      top: frameRect ? frameRect.top : viewRect.top,
+    };
+  }, []);
+
+  // Helper to clear text selections across all reader documents
+  const clearAllSelections = useCallback(() => {
+    try {
+      const contents = viewRef.current?.renderer?.getContents() || [];
+      for (const item of contents) {
+        item.doc?.defaultView?.getSelection()?.removeAllRanges();
+      }
+      window.getSelection()?.removeAllRanges();
+    } catch (e) {
+      console.warn('Error clearing selection:', e);
+    }
+  }, []);
+
   // Initialize and load book
   useEffect(() => {
     let isCancelled = false;
@@ -401,6 +431,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         const detail = e.detail || {};
         const fraction = detail.fraction ?? 0;
         setProgressFraction(fraction);
+
+        if (selectionRef.current) {
+          setSelection(null);
+          clearAllSelections();
+        }
 
         if (detail.cfi) {
           setCurrentCFI(detail.cfi);
@@ -437,9 +472,25 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         }
       });
 
-      // Listen for section load to attach selection and keyboard handlers
+      // Listen for section load to attach selection, contextmenu, and keyboard handlers
       view.addEventListener('load', (e: any) => {
         const { doc, index } = e.detail;
+
+        let selectionDismissedOnPointerDown = false;
+
+        // Pointerdown / mousedown on free space inside doc dismisses popover & selection
+        doc.addEventListener('pointerdown', (ev: PointerEvent) => {
+          if (selectionRef.current) {
+            const contents = view.renderer?.getContents() || [];
+            const currentContent = contents.find((c: any) => c.index === index && c.overlayer);
+            const [val] = currentContent?.overlayer?.hitTest({ x: ev.clientX, y: ev.clientY }) || [];
+            if (!val) {
+              selectionDismissedOnPointerDown = true;
+              setSelection(null);
+              doc.defaultView?.getSelection()?.removeAllRanges();
+            }
+          }
+        });
 
         // Mouse move inside iframe for edge reveal & activity reset
         doc.addEventListener('mousemove', (ev: MouseEvent) => {
@@ -468,6 +519,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           } else if (ev.key === 'Escape') {
             if (selectionRef.current) {
               setSelection(null);
+              clearAllSelections();
               return;
             }
             if (footnoteRef.current) {
@@ -494,47 +546,188 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           }
         });
 
-        // Text selection for highlights & annotations
-        doc.addEventListener('pointerup', () => {
+        // Context menu replacement & integration (Desktop right-click / Touch long press)
+        doc.addEventListener('contextmenu', (ev: MouseEvent) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+
+          // 1. Check if right-clicking on an existing annotation
+          const contents = view.renderer?.getContents() || [];
+          const currentContent = contents.find((c: any) => c.index === index && c.overlayer);
+          const overlayer = currentContent?.overlayer;
+          let hitAnnotationCfi: string | null = null;
+          let hitRange: Range | null = null;
+
+          if (overlayer) {
+            const [val, rng] = overlayer.hitTest({ x: ev.clientX, y: ev.clientY });
+            if (val && !val.startsWith('foliate-search:')) {
+              hitAnnotationCfi = val;
+              hitRange = rng;
+            }
+          }
+
+          if (hitAnnotationCfi) {
+            const ann = loadAnnotations(bookId).find((a) => a.value === hitAnnotationCfi);
+            if (ann) {
+              const offset = getViewportOffset(doc);
+              const rangeRect = hitRange?.getBoundingClientRect() || {
+                left: ev.clientX,
+                top: ev.clientY,
+                width: 0,
+                height: 20,
+              };
+              setSelection({
+                text: ann.text,
+                cfi: ann.value,
+                sectionIndex: index,
+                rect: {
+                  x: offset.left + rangeRect.left,
+                  y: offset.top + rangeRect.top,
+                  width: rangeRect.width,
+                  height: rangeRect.height,
+                },
+                existingAnnotation: ann,
+              });
+              return;
+            }
+          }
+
+          // 2. Check if there is an active text selection in doc
           const sel = doc.defaultView?.getSelection();
           if (sel && !sel.isCollapsed && sel.toString().trim()) {
             const text = sel.toString().trim();
             if (text.length > 0) {
               const range = sel.getRangeAt(0);
               const cfi = view.getCFI(index, range);
-              const rangeRect = range.getBoundingClientRect();
-              const viewRect = viewerContainerRef.current?.getBoundingClientRect() || {
-                top: 0,
-                left: 0,
-              };
-
               const existing = loadAnnotations(bookId).find((a) => a.value === cfi);
-
+              const rangeRect = range.getBoundingClientRect();
+              const offset = getViewportOffset(doc);
               setSelection({
                 text,
                 cfi,
                 sectionIndex: index,
                 rect: {
-                  x: viewRect.left + rangeRect.left,
-                  y: viewRect.top + rangeRect.top,
+                  x: offset.left + rangeRect.left,
+                  y: offset.top + rangeRect.top,
                   width: rangeRect.width,
                   height: rangeRect.height,
                 },
                 existingAnnotation: existing,
               });
+              return;
             }
           }
+
+          // 3. Right-click on unselected text -> expand to word
+          let targetRange: Range | null = null;
+          if ((doc as any).caretRangeFromPoint) {
+            targetRange = (doc as any).caretRangeFromPoint(ev.clientX, ev.clientY);
+          } else if ((doc as any).caretPositionFromPoint) {
+            const pos = (doc as any).caretPositionFromPoint(ev.clientX, ev.clientY);
+            if (pos?.offsetNode) {
+              const r = doc.createRange();
+              r.setStart(pos.offsetNode, pos.offset);
+              r.collapse(true);
+              targetRange = r;
+            }
+          }
+
+          if (targetRange && targetRange.startContainer.nodeType === Node.TEXT_NODE) {
+            const textNode = targetRange.startContainer as Text;
+            const textContent = textNode.textContent || '';
+            const offset = targetRange.startOffset;
+
+            let start = offset;
+            while (start > 0 && !/\s|[.,/#!$%^&*;:{}=\-_`~()«»""'']/.test(textContent[start - 1])) {
+              start--;
+            }
+            let end = offset;
+            while (end < textContent.length && !/\s|[.,/#!$%^&*;:{}=\-_`~()«»""'']/.test(textContent[end])) {
+              end++;
+            }
+
+            if (end > start) {
+              const wordRange = doc.createRange();
+              wordRange.setStart(textNode, start);
+              wordRange.setEnd(textNode, end);
+              const wordText = wordRange.toString().trim();
+              if (wordText) {
+                const selObj = doc.defaultView?.getSelection();
+                selObj?.removeAllRanges();
+                selObj?.addRange(wordRange);
+
+                const cfi = view.getCFI(index, wordRange);
+                const existing = loadAnnotations(bookId).find((a) => a.value === cfi);
+                const rangeRect = wordRange.getBoundingClientRect();
+                const offsetPos = getViewportOffset(doc);
+
+                setSelection({
+                  text: wordText,
+                  cfi,
+                  sectionIndex: index,
+                  rect: {
+                    x: offsetPos.left + rangeRect.left,
+                    y: offsetPos.top + rangeRect.top,
+                    width: rangeRect.width,
+                    height: rangeRect.height,
+                  },
+                  existingAnnotation: existing,
+                });
+                return;
+              }
+            }
+          }
+
+          // 4. Right-click on empty space -> dismiss popover
+          setSelection(null);
+          clearAllSelections();
+        });
+
+        // Text selection for highlights & annotations (mouse drag / touch selection)
+        doc.addEventListener('pointerup', () => {
+          setTimeout(() => {
+            const sel = doc.defaultView?.getSelection();
+            if (sel && !sel.isCollapsed && sel.toString().trim()) {
+              const text = sel.toString().trim();
+              if (text.length > 0) {
+                const range = sel.getRangeAt(0);
+                const cfi = view.getCFI(index, range);
+                const rangeRect = range.getBoundingClientRect();
+                const offset = getViewportOffset(doc);
+                const existing = loadAnnotations(bookId).find((a) => a.value === cfi);
+
+                setSelection({
+                  text,
+                  cfi,
+                  sectionIndex: index,
+                  rect: {
+                    x: offset.left + rangeRect.left,
+                    y: offset.top + rangeRect.top,
+                    width: rangeRect.width,
+                    height: rangeRect.height,
+                  },
+                  existingAnnotation: existing,
+                });
+              }
+            }
+          }, 20);
         });
 
         // Click handler inside iframe: footnote opening, unpinned sidebar dismissal, and controls toggle
         doc.addEventListener('click', async (ev: MouseEvent) => {
-          // 1. If unpinned sidebar is open, clicking dismisses it
+          // 1. If selection was dismissed on pointerdown, do not toggle controls
+          if (selectionDismissedOnPointerDown) {
+            selectionDismissedOnPointerDown = false;
+            return;
+          }
+
+          // 2. Unpinned sidebar dismissal
           if (!settingsRef.current.sidebarPinned && settingsRef.current.sidebarOpen) {
             onUpdateSettings({ sidebarOpen: false });
             return;
           }
 
-          // 2. Footnote / endnote link click
+          // 3. Footnote / endnote link click
           const a = (ev.target as Element)?.closest('a[href]');
           if (a) {
             const href = a.getAttribute('href') || '';
@@ -551,7 +744,15 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             return;
           }
 
-          // 3. Clean click without text selection -> toggle controls
+          // 4. If an annotation was clicked (overlayer hit test), view.js emits show-annotation
+          const contents = view.renderer?.getContents() || [];
+          const currentContent = contents.find((c: any) => c.index === index && c.overlayer);
+          const [val] = currentContent?.overlayer?.hitTest({ x: ev.clientX, y: ev.clientY }) || [];
+          if (val) {
+            return;
+          }
+
+          // 5. Clean click without text selection -> toggle controls
           const sel = doc.defaultView?.getSelection();
           if (!sel || sel.isCollapsed || !sel.toString().trim()) {
             setShowControls((prev) => {
@@ -574,26 +775,18 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
       view.addEventListener('draw-annotation', (e: any) => {
         const { draw, annotation } = e.detail;
-        const { color, style } = annotation;
-        if (style === 'underline') {
-          draw(Overlayer.underline, { color: color || '#ff7675', width: 2 });
-        } else if (style === 'squiggly') {
-          draw(Overlayer.squiggly, { color: color || '#ff7675', width: 2 });
-        } else if (style === 'strikethrough') {
-          draw(Overlayer.strikethrough, { color: color || '#ff7675', width: 2 });
-        } else {
-          draw(Overlayer.highlight, { color: color || '#ff7675' });
-        }
+        const { color } = annotation;
+        draw(Overlayer.highlight, { color: color || '#eab308' });
       });
 
       view.addEventListener('show-annotation', (e: any) => {
         const cfi = e.detail.value;
         const ann = loadAnnotations(bookId).find((a) => a.value === cfi);
         if (ann) {
-          const viewRect = viewerContainerRef.current?.getBoundingClientRect() || {
-            top: 0,
-            left: 0,
-          };
+          const contents = view.renderer?.getContents() || [];
+          const contentItem = contents.find((c: any) => c.index === e.detail.index);
+          const targetDoc = contentItem?.doc;
+          const offset = getViewportOffset(targetDoc);
           const rangeRect = e.detail.range?.getBoundingClientRect() || {
             left: 100,
             top: 100,
@@ -606,8 +799,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             cfi: ann.value,
             sectionIndex: e.detail.index ?? 0,
             rect: {
-              x: viewRect.left + rangeRect.left,
-              y: viewRect.top + rangeRect.top,
+              x: offset.left + rangeRect.left,
+              y: offset.top + rangeRect.top,
               width: rangeRect.width,
               height: rangeRect.height,
             },
@@ -744,6 +937,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       } else if (e.key === 'Escape') {
         if (selection) {
           setSelection(null);
+          clearAllSelections();
           return;
         }
         if (isBookInfoOpen) {
@@ -776,7 +970,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [selection, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide]);
+  }, [selection, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide, clearAllSelections]);
 
   // TOC Navigation
   const handleSelectTOC = (href: string) => {
@@ -791,7 +985,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     value: string;
     text: string;
     color: string;
-    style: 'highlight' | 'underline' | 'squiggly' | 'strikethrough';
+    style?: 'highlight' | 'underline' | 'squiggly' | 'strikethrough';
     note?: string;
     sectionIndex: number;
   }) => {
@@ -800,7 +994,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       bookId,
       value: data.value,
       color: data.color,
-      style: data.style,
+      style: 'highlight',
       text: data.text,
       note: data.note,
       createdAt: new Date().toISOString(),
@@ -811,12 +1005,16 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     saveAnnotation(newAnn);
     setAnnotations(loadAnnotations(bookId));
     viewRef.current?.addAnnotation(newAnn);
+    clearAllSelections();
+    setSelection(null);
   };
 
   const handleDeleteAnnotation = (value: string) => {
     removeStoredAnnotation(bookId, value);
     setAnnotations(loadAnnotations(bookId));
     viewRef.current?.deleteAnnotation({ value });
+    clearAllSelections();
+    setSelection(null);
   };
 
   const handleSelectAnnotation = (ann: Annotation) => {
@@ -983,6 +1181,19 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               onUpdateSettings({ sidebarOpen: false });
             }
           }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (selectionRef.current) {
+              setSelection(null);
+              clearAllSelections();
+            }
+          }}
+          onPointerDown={() => {
+            if (selectionRef.current) {
+              setSelection(null);
+              clearAllSelections();
+            }
+          }}
         >
           {/* Foliate-view container */}
           <div className="foliate-viewport-wrap" ref={viewerContainerRef} />
@@ -1010,7 +1221,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       {/* Selection / Annotation Popover */}
       <AnnotationPopover
         selection={selection}
-        onClose={() => setSelection(null)}
+        onClose={() => {
+          setSelection(null);
+          clearAllSelections();
+        }}
         onSave={handleSaveAnnotation}
         onDelete={handleDeleteAnnotation}
       />

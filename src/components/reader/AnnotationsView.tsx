@@ -49,7 +49,7 @@ export const AnnotationsView: React.FC<AnnotationsViewProps> = ({
                 <div className="annotation-card-top">
                   <span
                     className="annotation-dot"
-                    style={{ backgroundColor: ann.color || '#ff7675' }}
+                    style={{ backgroundColor: ann.color || '#eab308' }}
                   />
                   <p className="annotation-quote-text" title={ann.text}>
                     {ann.text}

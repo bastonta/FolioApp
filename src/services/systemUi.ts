@@ -34,6 +34,21 @@ export function isMobileDevice(): boolean {
 }
 
 /**
+ * Disable Android native text selection ActionMode (floating system toolbar)
+ * so that the custom reader annotation context menu displays cleanly.
+ */
+export function setDisableSystemActionMode(disable: boolean): void {
+  try {
+    const androidBridge = (window as any).AndroidBridge;
+    if (androidBridge && typeof androidBridge.setDisableSystemActionMode === 'function') {
+      androidBridge.setDisableSystemActionMode(disable);
+    }
+  } catch (e) {
+    console.warn('AndroidBridge setDisableSystemActionMode error:', e);
+  }
+}
+
+/**
  * Utility to control System UI / Status Bar (Clock & Battery) across platforms
  */
 

@@ -1,6 +1,11 @@
 package com.folio.folioapp
 
+import android.graphics.Rect
 import android.os.Bundle
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
+import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
@@ -10,6 +15,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : TauriActivity() {
+  private var disableSystemActionMode = false
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
@@ -18,6 +25,62 @@ class MainActivity : TauriActivity() {
     val insetsController = WindowCompat.getInsetsController(window, window.decorView)
     insetsController.isAppearanceLightStatusBars = true
     insetsController.isAppearanceLightNavigationBars = true
+  }
+
+  private fun wrapActionModeCallback(callback: ActionMode.Callback?): ActionMode.Callback? {
+    if (callback == null) return null
+    return object : ActionMode.Callback2() {
+      override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+        if (disableSystemActionMode) {
+          return false
+        }
+        return callback.onCreateActionMode(mode, menu)
+      }
+
+      override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+        if (disableSystemActionMode) {
+          return false
+        }
+        return callback.onPrepareActionMode(mode, menu)
+      }
+
+      override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
+        return callback.onActionItemClicked(mode, item)
+      }
+
+      override fun onDestroyActionMode(mode: ActionMode?) {
+        callback.onDestroyActionMode(mode)
+      }
+
+      override fun onGetContentRect(
+        mode: ActionMode?,
+        view: View?,
+        outRect: Rect?
+      ) {
+        if (callback is ActionMode.Callback2) {
+          callback.onGetContentRect(mode, view, outRect)
+        } else {
+          super.onGetContentRect(mode, view, outRect)
+        }
+      }
+    }
+  }
+
+  override fun onWindowStartingActionMode(callback: ActionMode.Callback?): ActionMode? {
+    val wrapped = wrapActionModeCallback(callback)
+    return super.onWindowStartingActionMode(wrapped)
+  }
+
+  override fun onWindowStartingActionMode(callback: ActionMode.Callback?, type: Int): ActionMode? {
+    val wrapped = wrapActionModeCallback(callback)
+    return super.onWindowStartingActionMode(wrapped, type)
+  }
+
+  override fun onActionModeStarted(mode: ActionMode?) {
+    if (disableSystemActionMode) {
+      mode?.finish()
+    }
+    super.onActionModeStarted(mode)
   }
 
   override fun onWebViewCreate(webView: WebView) {
@@ -47,6 +110,13 @@ class MainActivity : TauriActivity() {
     }
 
     webView.addJavascriptInterface(object {
+      @JavascriptInterface
+      fun setDisableSystemActionMode(disable: Boolean) {
+        runOnUiThread {
+          disableSystemActionMode = disable
+        }
+      }
+
       @JavascriptInterface
       fun setStatusBarVisible(visible: Boolean) {
         runOnUiThread {

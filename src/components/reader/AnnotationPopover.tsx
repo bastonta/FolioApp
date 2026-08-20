@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Annotation } from '../../types/reader';
+import { Annotation, ANNOTATION_COLORS } from '../../types/reader';
 import { Copy, Trash2, Check, MessageSquare } from 'lucide-react';
 
 export interface SelectionInfo {
@@ -17,20 +17,12 @@ interface AnnotationPopoverProps {
     value: string;
     text: string;
     color: string;
-    style: 'highlight' | 'underline' | 'squiggly' | 'strikethrough';
+    style: 'highlight';
     note?: string;
     sectionIndex: number;
   }) => void;
   onDelete?: (value: string) => void;
 }
-
-const COLORS = [
-  { name: 'Red', color: '#ff7675' },
-  { name: 'Yellow', color: '#ffeaa7' },
-  { name: 'Green', color: '#55efc4' },
-  { name: 'Blue', color: '#74b9ff' },
-  { name: 'Purple', color: '#a29bfe' },
-];
 
 export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
   selection,
@@ -38,8 +30,7 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
   onSave,
   onDelete,
 }) => {
-  const [selectedColor, setSelectedColor] = useState<string>('#ff7675');
-  const [style, setStyle] = useState<'highlight' | 'underline' | 'squiggly' | 'strikethrough'>('highlight');
+  const [selectedColor, setSelectedColor] = useState<string>(ANNOTATION_COLORS.yellow.hex);
   const [showNoteInput, setShowNoteInput] = useState<boolean>(false);
   const [noteText, setNoteText] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
@@ -49,12 +40,10 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
   useEffect(() => {
     if (selection?.existingAnnotation) {
       setSelectedColor(selection.existingAnnotation.color);
-      setStyle(selection.existingAnnotation.style || 'highlight');
       setNoteText(selection.existingAnnotation.note || '');
       setShowNoteInput(!!selection.existingAnnotation.note);
     } else {
-      setSelectedColor('#ff7675');
-      setStyle('highlight');
+      setSelectedColor(ANNOTATION_COLORS.yellow.hex);
       setNoteText('');
       setShowNoteInput(false);
     }
@@ -62,13 +51,17 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
   }, [selection]);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent | PointerEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
+    window.addEventListener('pointerdown', handleClickOutside);
     window.addEventListener('mousedown', handleClickOutside);
-    return () => window.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      window.removeEventListener('pointerdown', handleClickOutside);
+      window.removeEventListener('mousedown', handleClickOutside);
+    };
   }, [onClose]);
 
   if (!selection) return null;
@@ -88,16 +81,23 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
       value: selection.cfi,
       text: selection.text,
       color,
-      style,
+      style: 'highlight',
       note: noteText.trim() || undefined,
       sectionIndex: selection.sectionIndex,
     });
     onClose();
   };
 
-  // Position calculation (clamped to screen boundaries)
-  const top = Math.max(10, selection.rect.y - 60);
-  const left = Math.max(10, Math.min(window.innerWidth - 300, selection.rect.x + selection.rect.width / 2 - 140));
+  // Position calculation (clamped to screen boundaries with safe areas)
+  const popoverWidth = Math.min(window.innerWidth - 20, 360);
+  const popoverHeight = showNoteInput ? 170 : 44;
+
+  let top = selection.rect.y - popoverHeight - 8;
+  if (top < 10) {
+    top = Math.min(window.innerHeight - popoverHeight - 10, selection.rect.y + selection.rect.height + 8);
+  }
+  let left = selection.rect.x + selection.rect.width / 2 - popoverWidth / 2;
+  left = Math.max(10, Math.min(window.innerWidth - popoverWidth - 10, left));
 
   return (
     <div
@@ -107,24 +107,28 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
         position: 'fixed',
         top: `${top}px`,
         left: `${left}px`,
-        zIndex: 900,
+        zIndex: 999,
       }}
       onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
     >
       <div className="annotation-popover-main">
-        {/* Colors */}
+        {/* Color Palette */}
         <div className="annotation-color-picker">
-          {COLORS.map((c) => (
+          {Object.entries(ANNOTATION_COLORS).map(([key, c]) => (
             <button
-              key={c.color}
+              key={key}
               type="button"
-              className={`color-dot-btn ${selectedColor === c.color ? 'active' : ''}`}
-              style={{ backgroundColor: c.color }}
+              className={`color-dot-btn ${selectedColor === c.hex ? 'active' : ''}`}
+              style={{ backgroundColor: c.hex }}
               onClick={() => {
-                setSelectedColor(c.color);
-                handleSave(c.color);
+                setSelectedColor(c.hex);
+                handleSave(c.hex);
               }}
-              title={c.name}
+              title={c.label}
+              aria-label={c.label}
             />
           ))}
         </div>
@@ -137,6 +141,7 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
           className={`popover-action-btn ${showNoteInput ? 'active' : ''}`}
           onClick={() => setShowNoteInput(!showNoteInput)}
           title="Add Note"
+          aria-label="Add Note"
         >
           <MessageSquare size={16} />
         </button>
@@ -147,11 +152,12 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
           className="popover-action-btn"
           onClick={handleCopy}
           title="Copy Text"
+          aria-label="Copy Text"
         >
           {copied ? <Check size={16} className="text-success" /> : <Copy size={16} />}
         </button>
 
-        {/* Delete button (if existing) */}
+        {/* Delete button (if existing annotation) */}
         {selection.existingAnnotation && onDelete && (
           <button
             type="button"
@@ -161,6 +167,7 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
               onClose();
             }}
             title="Delete Annotation"
+            aria-label="Delete Annotation"
           >
             <Trash2 size={16} />
           </button>
@@ -176,6 +183,15 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
             placeholder="Add a note..."
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                handleSave();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                onClose();
+              }
+            }}
             autoFocus
           />
           <div className="annotation-note-actions">
