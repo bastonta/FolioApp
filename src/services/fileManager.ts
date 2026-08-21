@@ -118,7 +118,7 @@ export const fileManager = {
   },
 
   /**
-   * Downloads a book from the Folio server into the download folder / series subfolder.
+   * Downloads a book from the Folio server into the download folder / series subfolders (supports nested paths, e.g. "Мир Элдерлингов/Сага о Видящих").
    */
   downloadBookFile: async (options: {
     serverUrl: string;
@@ -158,7 +158,7 @@ export const fileManager = {
   },
 
   /**
-   * Checks if book already exists in download folder / series folder.
+   * Checks if book already exists in download folder / series folder (including nested series path and recursive search).
    */
   checkBookDownloaded: async (options: {
     baseDir: string;

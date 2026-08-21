@@ -13,6 +13,8 @@ import {
   ShieldAlert,
   HardDrive,
   Smartphone,
+  LayoutGrid,
+  List as ListIcon,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -339,6 +341,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 aria-label="Toggle automatic series folders creation"
               >
                 <span className="toggle-thumb" />
+              </button>
+            </div>
+          </div>
+
+          {/* Library & Catalog Display Mode */}
+          <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                marginBottom: 6,
+              }}
+            >
+              <LayoutGrid size={18} style={{ color: 'var(--accent-color)' }} />
+              <span>Library & Catalog View</span>
+            </label>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+              Choose how books and folders are displayed by default in your library and catalog.
+            </p>
+
+            <div className="segmented-control" style={{ maxWidth: 360 }}>
+              <button
+                type="button"
+                className={`segmented-btn ${(settings.libraryViewMode || 'grid') === 'grid' ? 'active' : ''}`}
+                onClick={() => {
+                  localStorage.setItem('folio_library_view_mode', 'grid');
+                  onUpdateSettings({ libraryViewMode: 'grid' });
+                }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              >
+                <LayoutGrid size={15} />
+                <span>Grid</span>
+              </button>
+              <button
+                type="button"
+                className={`segmented-btn ${settings.libraryViewMode === 'list' ? 'active' : ''}`}
+                onClick={() => {
+                  localStorage.setItem('folio_library_view_mode', 'list');
+                  onUpdateSettings({ libraryViewMode: 'list' });
+                }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              >
+                <ListIcon size={15} />
+                <span>List</span>
               </button>
             </div>
           </div>

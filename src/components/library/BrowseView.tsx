@@ -14,6 +14,8 @@ import {
   RefreshCw,
   Sparkles,
   CheckCircle2,
+  LayoutGrid,
+  List as ListIcon,
 } from 'lucide-react';
 import { libraryApi, BrowseParams } from '../../api/libraryApi';
 import { fileManager } from '../../services/fileManager';
@@ -26,6 +28,7 @@ interface BrowseViewProps {
   onBackToLocalLibrary: () => void;
   onOpenBookFromPath?: (filePath: string, title?: string, author?: string) => void;
   onBookDownloaded?: () => void;
+  onUpdateSettings?: (settings: Partial<ReaderSettings>) => void;
 }
 
 export const BrowseView: React.FC<BrowseViewProps> = ({
@@ -33,11 +36,29 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   onBackToLocalLibrary,
   onOpenBookFromPath,
   onBookDownloaded,
+  onUpdateSettings,
 }) => {
   // Navigation & Folder path
   const [currentSeriesPath, setCurrentSeriesPath] = useState<
     Array<{ id: string; name: string }>
   >([]);
+
+  // View mode: 'grid' | 'list'
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    return settings.libraryViewMode || (localStorage.getItem('folio_library_view_mode') as 'grid' | 'list') || 'grid';
+  });
+
+  useEffect(() => {
+    if (settings.libraryViewMode && settings.libraryViewMode !== viewMode) {
+      setViewMode(settings.libraryViewMode);
+    }
+  }, [settings.libraryViewMode]);
+
+  const handleToggleViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    localStorage.setItem('folio_library_view_mode', mode);
+    onUpdateSettings?.({ libraryViewMode: mode });
+  };
 
   // Search, Filter & Sort
   const [searchInput, setSearchInput] = useState('');
@@ -56,6 +77,109 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   // Download states: bookId -> 'downloading' | 'downloaded' | 'error'
   const [downloadStates, setDownloadStates] = useState<Record<string, 'downloading' | 'downloaded' | 'error'>>({});
   const [downloadedPaths, setDownloadedPaths] = useState<Record<string, string>>({});
+
+  const seriesMapRef = React.useRef<Map<string, any> | null>(null);
+
+  const getSeriesMap = useCallback(async (): Promise<Map<string, any>> => {
+    if (seriesMapRef.current) return seriesMapRef.current;
+    try {
+      const list = await libraryApi.getSeries();
+      const map = new Map<string, any>();
+      for (const item of list) {
+        map.set(item.id, item);
+      }
+      seriesMapRef.current = map;
+      return map;
+    } catch (err) {
+      console.warn('Failed to load series list:', err);
+      return new Map();
+    }
+  }, []);
+
+  const resolveBookSeriesPath = useCallback(
+    async (
+      bookId: string,
+      activeBreadcrumb: Array<{ id: string; name: string }>
+    ): Promise<string | undefined> => {
+      if (settings.createSeriesFolder === false) {
+        return undefined;
+      }
+
+      const currentBreadcrumbNames = activeBreadcrumb.map((s) => s.name);
+
+      try {
+        const [bookDetail, seriesMap] = await Promise.all([
+          libraryApi.getBook(bookId).catch(() => null),
+          getSeriesMap(),
+        ]);
+
+        if (!bookDetail || !bookDetail.series || bookDetail.series.length === 0) {
+          return currentBreadcrumbNames.length > 0
+            ? currentBreadcrumbNames.join('/')
+            : undefined;
+        }
+
+        // Helper: trace ancestor chain from series ID
+        const getAncestorPath = (seriesId: string): string[] => {
+          const path: string[] = [];
+          let currId: string | null | undefined = seriesId;
+          const visited = new Set<string>();
+
+          while (currId && !visited.has(currId)) {
+            visited.add(currId);
+            const s = seriesMap.get(currId);
+            if (!s) {
+              const inBook = bookDetail.series.find((bs) => bs.id === currId);
+              if (inBook) {
+                path.unshift(inBook.name);
+                currId = inBook.parentId;
+                continue;
+              }
+              break;
+            }
+            path.unshift(s.name);
+            currId = s.parentId;
+          }
+          return path;
+        };
+
+        const candidatePaths: string[][] = [];
+        for (const s of bookDetail.series) {
+          const p = getAncestorPath(s.id);
+          if (p.length > 0) {
+            candidatePaths.push(p);
+          } else if (s.name) {
+            candidatePaths.push([s.name]);
+          }
+        }
+
+        if (candidatePaths.length === 0) {
+          return currentBreadcrumbNames.length > 0
+            ? currentBreadcrumbNames.join('/')
+            : undefined;
+        }
+
+        // If currently inside a folder, find candidate path that matches active folder
+        if (activeBreadcrumb.length > 0) {
+          const activeName = activeBreadcrumb[activeBreadcrumb.length - 1].name;
+          const matching = candidatePaths.find((p) => p.includes(activeName));
+          if (matching) {
+            return matching.join('/');
+          }
+        }
+
+        // Otherwise pick the longest / most specific hierarchy path
+        candidatePaths.sort((a, b) => b.length - a.length);
+        return candidatePaths[0].join('/');
+      } catch (e) {
+        console.warn('Failed to resolve book series path:', e);
+        return currentBreadcrumbNames.length > 0
+          ? currentBreadcrumbNames.join('/')
+          : undefined;
+      }
+    },
+    [settings.createSeriesFolder, getSeriesMap]
+  );
 
   const currentSeries = currentSeriesPath.length > 0
     ? currentSeriesPath[currentSeriesPath.length - 1]
@@ -83,12 +207,12 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       if (settings.downloadPath && res.items) {
         const bookItems = res.items.filter((i) => i.type === 'book');
         for (const book of bookItems) {
-          const seriesName = currentSeries?.name;
+          const seriesPath = currentSeriesPath.map((s) => s.name).join('/') || undefined;
           const fileName = `${book.name}.epub`;
           const existingPath = await fileManager.checkBookDownloaded({
             baseDir: settings.downloadPath,
             fileName,
-            seriesName: settings.createSeriesFolder !== false ? seriesName : undefined,
+            seriesName: settings.createSeriesFolder !== false ? seriesPath : undefined,
           });
           if (existingPath) {
             setDownloadedPaths((prev) => ({ ...prev, [book.id]: existingPath }));
@@ -102,7 +226,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [currentSeries, search, searchBy, sortBy, page, settings.downloadPath, settings.createSeriesFolder]);
+  }, [currentSeries, currentSeriesPath, search, searchBy, sortBy, page, settings.downloadPath, settings.createSeriesFolder]);
 
   useEffect(() => {
     fetchBrowseItems();
@@ -153,7 +277,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         throw new Error('Server URL is not configured');
       }
       const token = getAccessToken() || undefined;
-      const seriesName = settings.createSeriesFolder !== false ? currentSeries?.name : undefined;
+      const seriesPath = await resolveBookSeriesPath(book.id, currentSeriesPath);
       const fileName = `${book.name}.epub`;
 
       const savedPath = await fileManager.downloadBookFile({
@@ -161,7 +285,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         token,
         bookId: book.id,
         fileName,
-        seriesName,
+        seriesName: seriesPath,
         baseDir: settings.downloadPath,
       });
 
@@ -178,7 +302,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   const totalPages = Math.ceil(totalItems / limit) || 1;
 
   return (
-    <div className="library-view-container" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="library-view-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       {/* Header */}
       <header className="library-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
@@ -214,7 +338,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       </header>
 
       {/* Main Content Area */}
-      <main className="library-main-content" style={{ flex: 1, overflowY: 'auto' }}>
+      <main className="library-main-content" style={{ flex: '1 1 0%', minHeight: 0, overflowY: 'auto' }}>
         
         {/* Navigation Breadcrumb & Toolbar */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -378,6 +502,28 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                   <option value="sortOrder">By Series Order</option>
                 </select>
               </div>
+
+              {/* View mode toggle (Grid / List) */}
+              <div className="view-mode-toggle-group">
+                <button
+                  type="button"
+                  className={`view-mode-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                  onClick={() => handleToggleViewMode('grid')}
+                  title="Grid View"
+                  aria-label="Grid View"
+                >
+                  <LayoutGrid size={16} />
+                </button>
+                <button
+                  type="button"
+                  className={`view-mode-btn ${viewMode === 'list' ? 'active' : ''}`}
+                  onClick={() => handleToggleViewMode('list')}
+                  title="List View"
+                  aria-label="List View"
+                >
+                  <ListIcon size={16} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -406,7 +552,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                 : 'Catalog on server is empty.'}
             </p>
           </div>
-        ) : (
+        ) : viewMode === 'grid' ? (
           <div className="books-grid" style={{ marginTop: 8 }}>
             {items.map((item) => {
               if (item.type === 'series') {
@@ -637,6 +783,228 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               );
             })}
           </div>
+        ) : (
+          <div className="books-list" style={{ marginTop: 8 }}>
+            {items.map((item) => {
+              if (item.type === 'series') {
+                return (
+                  <div
+                    key={item.id}
+                    className="folder-list-item"
+                    onClick={() => handleOpenFolder(item)}
+                  >
+                    <div className="folder-list-thumbnail-wrap">
+                      <div
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                          color: '#a855f7',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Folder size={22} />
+                      </div>
+                    </div>
+
+                    <div className="book-list-details">
+                      <div className="folder-list-title-row">
+                        <h4 className="book-list-title folder-title">
+                          {item.name}
+                        </h4>
+                        <span
+                          className="folder-list-badge"
+                          style={{
+                            backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                            color: '#a855f7',
+                            border: '1px solid rgba(168, 85, 247, 0.25)',
+                          }}
+                        >
+                          Series
+                        </span>
+                      </div>
+                      <p className="folder-list-hint" style={{ color: '#a855f7' }}>
+                        Book series • Click to open folder
+                      </p>
+                    </div>
+
+                    <div className="folder-list-right">
+                      <ChevronRight size={18} className="folder-list-arrow" style={{ color: '#a855f7' }} />
+                    </div>
+                  </div>
+                );
+              }
+
+              // Book Item in List View
+              const downloadStatus = downloadStates[item.id];
+              const isDownloaded = downloadStatus === 'downloaded' || Boolean(downloadedPaths[item.id]);
+              const isDownloading = downloadStatus === 'downloading';
+              const coverUrl = libraryApi.getBookCoverUrl(item.id);
+              const progressPct = item.progress?.progressPercent ?? 0;
+              const isRead = Boolean(item.progress?.isRead);
+              const readingStatus = isRead ? 'Completed' : progressPct > 0 ? `${Math.round(progressPct)}%` : 'Unread';
+
+              return (
+                <div
+                  key={item.id}
+                  className="book-list-item"
+                  style={{ cursor: isDownloaded && downloadedPaths[item.id] && onOpenBookFromPath ? 'pointer' : 'default' }}
+                  onClick={() => {
+                    if (isDownloaded && downloadedPaths[item.id] && onOpenBookFromPath) {
+                      onOpenBookFromPath(downloadedPaths[item.id], item.name, item.author);
+                    }
+                  }}
+                >
+                  {/* Cover thumbnail */}
+                  <div className="book-list-thumbnail-wrap" style={{ position: 'relative' }}>
+                    <div className="book-list-thumbnail-placeholder">
+                      <BookOpen size={20} />
+                    </div>
+                    <img
+                      src={coverUrl}
+                      alt={item.name}
+                      className="book-list-thumbnail"
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                      style={{ position: 'absolute', inset: 0 }}
+                    />
+                  </div>
+
+                  {/* Book Info */}
+                  <div className="book-list-details">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <h4 className="book-list-title" title={item.name}>
+                        {item.name}
+                      </h4>
+                      {item.sortOrder !== undefined && item.sortOrder !== null && (
+                        <span
+                          style={{
+                            backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                            color: '#c084fc',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            fontFamily: 'monospace',
+                            padding: '1px 5px',
+                            borderRadius: 4,
+                          }}
+                        >
+                          #{item.sortOrder}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="book-list-author" title={item.author}>
+                      {item.author || 'Unknown Author'}
+                    </p>
+
+                    {progressPct > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, maxWidth: 160 }}>
+                        <div style={{ flex: 1, height: 4, backgroundColor: 'var(--bg-tertiary)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div
+                            style={{
+                              height: '100%',
+                              width: `${Math.min(100, Math.max(5, progressPct))}%`,
+                              backgroundColor: isRead ? '#22c55e' : 'var(--accent-color)',
+                              borderRadius: 2,
+                            }}
+                          />
+                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          {Math.round(progressPct)}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Reading / Download status info */}
+                  <div className="book-list-reading-info">
+                    {isDownloaded ? (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
+                          color: '#22c55e',
+                          fontSize: 11,
+                          fontWeight: 600,
+                        }}
+                      >
+                        <Check size={12} />
+                        <span>Downloaded</span>
+                      </span>
+                    ) : (
+                      <span className="book-list-status">{readingStatus}</span>
+                    )}
+                  </div>
+
+                  {/* Action button */}
+                  <div className="book-list-actions" onClick={(e) => e.stopPropagation()}>
+                    {isDownloaded && downloadedPaths[item.id] && onOpenBookFromPath ? (
+                      <button
+                        type="button"
+                        className="auth-btn-primary"
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: 12,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          whiteSpace: 'nowrap',
+                        }}
+                        onClick={() =>
+                          onOpenBookFromPath(
+                            downloadedPaths[item.id],
+                            item.name,
+                            item.author
+                          )
+                        }
+                      >
+                        <BookOpen size={13} />
+                        <span>Read</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className={isDownloaded ? 'auth-btn-secondary' : 'auth-btn-primary'}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: 12,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          whiteSpace: 'nowrap',
+                        }}
+                        onClick={() => handleDownloadBook(item)}
+                        disabled={isDownloading}
+                      >
+                        {isDownloading ? (
+                          <>
+                            <Loader2 size={13} className="animate-spin" />
+                            <span>Downloading...</span>
+                          </>
+                        ) : isDownloaded ? (
+                          <>
+                            <CheckCircle2 size={13} style={{ color: '#22c55e' }} />
+                            <span>Re-download</span>
+                          </>
+                        ) : (
+                          <>
+                            <Download size={13} />
+                            <span>Download</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
 
         {/* Pagination */}
@@ -646,9 +1014,10 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '16px 0',
+              padding: '16px 0 24px 0',
               borderTop: '1px solid var(--border-color)',
               marginTop: 20,
+              flexShrink: 0,
             }}
           >
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>

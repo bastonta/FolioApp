@@ -274,6 +274,7 @@ function AppRoutes() {
                   settings={settings}
                   onBackToLocalLibrary={() => setCurrentView('library')}
                   onOpenBookFromPath={handleOpenBookFromPath}
+                  onUpdateSettings={handleUpdateSettings}
                 />
               ) : (
                 <LibraryView

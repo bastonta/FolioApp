@@ -122,9 +122,16 @@ pub async fn scan_local_books(dir_path: String) -> Result<Vec<LocalBookFile>, St
                         let folder_name = if let Some(parent) = path.parent() {
                             if parent != base {
                                 parent
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .map(|s| s.to_string())
+                                    .strip_prefix(&base)
+                                    .ok()
+                                    .and_then(|p| p.to_str())
+                                    .map(|s| s.replace('\\', "/"))
+                                    .or_else(|| {
+                                        parent
+                                            .file_name()
+                                            .and_then(|n| n.to_str())
+                                            .map(|s| s.to_string())
+                                    })
                             } else {
                                 None
                             }
@@ -191,11 +198,21 @@ pub async fn download_book_file(
             PathBuf::from(&base_dir)
         }
     } else if let Some(series) = series_name {
-        let clean_series = sanitize_filename_part(&series);
-        if !clean_series.is_empty() {
-            PathBuf::from(&base_dir).join(clean_series)
+        let mut dir = PathBuf::from(&base_dir);
+        let parts: Vec<&str> = series
+            .split(|c| c == '/' || c == '\\')
+            .filter(|p| !p.trim().is_empty())
+            .collect();
+        if parts.is_empty() {
+            dir
         } else {
-            PathBuf::from(&base_dir)
+            for part in parts {
+                let clean_part = sanitize_filename_part(part);
+                if !clean_part.is_empty() {
+                    dir = dir.join(clean_part);
+                }
+            }
+            dir
         }
     } else {
         PathBuf::from(&base_dir)
@@ -284,12 +301,20 @@ pub async fn check_book_downloaded(
         clean_name = format!("{clean_name}.epub");
     }
 
-    // 1. Check in series directory if specified
+    // 1. Check in series directory (including nested series path) if specified
     if let Some(series) = series_name {
-        let clean_series = sanitize_filename_part(&series);
-        let series_file = PathBuf::from(&base_dir)
-            .join(clean_series)
-            .join(&clean_name);
+        let mut series_dir = PathBuf::from(&base_dir);
+        let parts: Vec<&str> = series
+            .split(|c| c == '/' || c == '\\')
+            .filter(|p| !p.trim().is_empty())
+            .collect();
+        for part in parts {
+            let clean_part = sanitize_filename_part(part);
+            if !clean_part.is_empty() {
+                series_dir = series_dir.join(clean_part);
+            }
+        }
+        let series_file = series_dir.join(&clean_name);
         if series_file.exists() && series_file.is_file() {
             return Ok(Some(series_file.to_string_lossy().to_string()));
         }
@@ -299,6 +324,32 @@ pub async fn check_book_downloaded(
     let root_file = PathBuf::from(&base_dir).join(&clean_name);
     if root_file.exists() && root_file.is_file() {
         return Ok(Some(root_file.to_string_lossy().to_string()));
+    }
+
+    // 3. Fallback: recursive search under base_dir
+    let base = PathBuf::from(&base_dir);
+    if base.exists() && base.is_dir() {
+        let mut stack = vec![base];
+        while let Some(current_dir) = stack.pop() {
+            if let Ok(mut entries) = fs::read_dir(&current_dir).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                            if !name.starts_with('.') {
+                                stack.push(path);
+                            }
+                        }
+                    } else if path.is_file() {
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                            if name.eq_ignore_ascii_case(&clean_name) {
+                                return Ok(Some(path.to_string_lossy().to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Ok(None)

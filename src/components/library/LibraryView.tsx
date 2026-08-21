@@ -53,7 +53,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [localBooks, setLocalBooks] = useState<LocalBookFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [currentFolderPath, setCurrentFolderPath] = useState<string[]>([]);
   const [hasPermission, setHasPermission] = useState(true);
   const isMobile = isMobileDevice();
 
@@ -61,6 +61,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
     return settings.libraryViewMode || (localStorage.getItem('folio_library_view_mode') as 'grid' | 'list') || 'grid';
   });
+
+  useEffect(() => {
+    if (settings.libraryViewMode && settings.libraryViewMode !== viewMode) {
+      setViewMode(settings.libraryViewMode);
+    }
+  }, [settings.libraryViewMode]);
 
   const handleToggleViewMode = (mode: 'grid' | 'list') => {
     setViewMode(mode);
@@ -188,39 +194,67 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     }
   };
 
-  // Delete entire folder
+  // Helper to extract folder segments from relativePath / folderName
+  const getBookFolderSegments = useCallback((book: LocalBookFile): string[] => {
+    if (book.relativePath) {
+      const parts = book.relativePath.split('/');
+      return parts.slice(0, parts.length - 1).filter(Boolean);
+    }
+    if (book.folderName) {
+      return book.folderName.split('/').filter(Boolean);
+    }
+    return [];
+  }, []);
+
+  // Delete entire folder (including nested subfolders)
   const handleDeleteFolder = async (folderName: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const booksInFolder = localBooks.filter((b) => b.folderName === folderName);
+    const targetPrefix = [...currentFolderPath, folderName];
+    const booksInFolder = localBooks.filter((b) => {
+      const segs = getBookFolderSegments(b);
+      return targetPrefix.every((p, idx) => segs[idx] === p);
+    });
+
     if (confirm(`Delete folder "${folderName}" and all ${booksInFolder.length} books inside?`)) {
       for (const book of booksInFolder) {
         await fileManager.deleteBookFile(book.filePath);
-      }
-      if (selectedFolder === folderName) {
-        setSelectedFolder(null);
       }
       await scanFolder();
     }
   };
 
-  // Group books by folders
-  const { folderMap, rootBooks, folderNames } = useMemo(() => {
-    const map = new Map<string, LocalBookFile[]>();
-    const roots: LocalBookFile[] = [];
+  // Group books & subfolders by current navigation level
+  const { currentLevelBooks, directSubfolderNames, directSubfolderMap, allNestedCount } = useMemo(() => {
+    const subMap = new Map<string, LocalBookFile[]>();
+    const levelBooks: LocalBookFile[] = [];
 
     for (const book of localBooks) {
-      if (book.folderName) {
-        const existing = map.get(book.folderName) || [];
-        existing.push(book);
-        map.set(book.folderName, existing);
+      const segments = getBookFolderSegments(book);
+      const isUnderCurrent = currentFolderPath.every((p, idx) => segments[idx] === p);
+      if (!isUnderCurrent) continue;
+
+      const remainder = segments.slice(currentFolderPath.length);
+      if (remainder.length === 0) {
+        levelBooks.push(book);
       } else {
-        roots.push(book);
+        const directSub = remainder[0];
+        const existing = subMap.get(directSub) || [];
+        existing.push(book);
+        subMap.set(directSub, existing);
       }
     }
 
-    const folders = Array.from(map.keys()).sort((a, b) => a.localeCompare(b));
-    return { folderMap: map, rootBooks: roots, folderNames: folders };
-  }, [localBooks]);
+    const subNames = Array.from(subMap.keys()).sort((a, b) => a.localeCompare(b));
+    const totalCount =
+      levelBooks.length + Array.from(subMap.values()).reduce((acc, list) => acc + list.length, 0);
+
+    return {
+      currentLevelBooks: levelBooks,
+      directSubfolderNames: subNames,
+      directSubfolderMap: subMap,
+      allNestedCount: totalCount,
+    };
+  }, [localBooks, currentFolderPath, getBookFolderSegments]);
 
   // Handle Search Filtering
   const isSearching = searchQuery.trim().length > 0;
@@ -236,14 +270,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     });
   }, [isSearching, searchQuery, localBooks, metaCache]);
 
-  // Current folder's books (when inside a folder)
-  const currentFolderBooks = useMemo(() => {
-    if (!selectedFolder) return [];
-    return folderMap.get(selectedFolder) || [];
-  }, [selectedFolder, folderMap]);
-
   return (
-    <div className="library-view-container" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="library-view-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       {/* Top Header */}
       <header className="library-header">
         <div className="library-brand">
@@ -301,7 +329,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       </header>
 
       {/* Main Content */}
-      <main className="library-main-content" style={{ flex: 1, overflowY: 'auto' }}>
+      <main className="library-main-content" style={{ flex: '1 1 0%', minHeight: 0, overflowY: 'auto' }}>
         {/* Permission prompt banner for Android */}
         {isMobile && !hasPermission && (
           <div
@@ -403,24 +431,61 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             </div>
 
             {/* Folder Breadcrumb & Navigation */}
-            {selectedFolder && !isSearching && (
-              <div className="library-folder-breadcrumb">
+            {currentFolderPath.length > 0 && !isSearching && (
+              <div
+                className="library-folder-breadcrumb"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  overflowX: 'auto',
+                  whiteSpace: 'nowrap',
+                  paddingBottom: 2,
+                }}
+              >
                 <button
                   type="button"
                   className="breadcrumb-back-btn"
-                  onClick={() => setSelectedFolder(null)}
+                  onClick={() => setCurrentFolderPath([])}
                 >
                   <ArrowLeft size={15} />
                   <span>All Books</span>
                 </button>
-                <ChevronRight size={14} className="breadcrumb-separator" />
-                <span className="breadcrumb-current-folder">
-                  <Folder size={14} style={{ color: 'var(--accent-color)', flexShrink: 0 }} />
-                  <span style={{ fontWeight: 700 }}>{selectedFolder}</span>
-                  <span className="breadcrumb-count">
-                    ({currentFolderBooks.length} {currentFolderBooks.length === 1 ? 'book' : 'books'})
-                  </span>
-                </span>
+                {currentFolderPath.map((folder, idx) => {
+                  const isLast = idx === currentFolderPath.length - 1;
+                  return (
+                    <React.Fragment key={`${folder}-${idx}`}>
+                      <ChevronRight size={14} className="breadcrumb-separator" />
+                      <button
+                        type="button"
+                        onClick={() => setCurrentFolderPath((prev) => prev.slice(0, idx + 1))}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          background: 'none',
+                          border: 'none',
+                          color: isLast ? 'var(--accent-color)' : 'var(--text-secondary)',
+                          fontWeight: isLast ? 700 : 500,
+                          fontSize: 13,
+                          cursor: 'pointer',
+                          padding: 0,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Folder size={14} style={{ color: isLast ? 'var(--accent-color)' : 'var(--text-muted)' }} />
+                        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={folder}>
+                          {folder}
+                        </span>
+                        {isLast && (
+                          <span className="breadcrumb-count" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                            ({allNestedCount} {allNestedCount === 1 ? 'book' : 'books'})
+                          </span>
+                        )}
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -434,17 +499,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               <h2 className="recent-section-title">
                 {isSearching
                   ? `Search: "${searchQuery}"`
-                  : selectedFolder
-                  ? selectedFolder
+                  : currentFolderPath.length > 0
+                  ? currentFolderPath[currentFolderPath.length - 1]
                   : 'Books & Collections'}
               </h2>
               <span className="recent-section-count">
                 {isSearching
                   ? `${filteredSearchBooks.length} found`
-                  : selectedFolder
-                  ? `${currentFolderBooks.length} ${currentFolderBooks.length === 1 ? 'book' : 'books'}`
-                  : `${localBooks.length} ${localBooks.length === 1 ? 'book' : 'books'}${
-                      folderNames.length > 0 ? ` in ${folderNames.length} folders` : ''
+                  : `${allNestedCount} ${allNestedCount === 1 ? 'book' : 'books'}${
+                      directSubfolderNames.length > 0 ? ` in ${directSubfolderNames.length} folders` : ''
                     }`}
               </span>
             </div>
@@ -511,33 +574,22 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 {filteredSearchBooks.map((book) => renderBookItemRow(book))}
               </div>
             )
-          ) : selectedFolder ? (
-            /* Inside a folder view */
-            currentFolderBooks.length === 0 ? (
-              <div className="library-empty-box">
-                <p>No books in this folder.</p>
-              </div>
-            ) : viewMode === 'grid' ? (
-              <div className="books-grid">
-                {currentFolderBooks.map((book) => renderBookCardGrid(book))}
-              </div>
-            ) : (
-              <div className="books-list">
-                {currentFolderBooks.map((book) => renderBookItemRow(book))}
-              </div>
-            )
+          ) : currentLevelBooks.length === 0 && directSubfolderNames.length === 0 ? (
+            <div className="library-empty-box">
+              <p>No books in this folder.</p>
+            </div>
           ) : (
-            /* Root view: folders & top-level books */
+            /* Active level view: folders & direct books */
             viewMode === 'grid' ? (
               <div className="books-grid">
-                {/* 1. Folders as grid cards */}
-                {folderNames.map((folderName) => {
-                  const booksInFolder = folderMap.get(folderName) || [];
+                {/* 1. Direct subfolders as grid cards */}
+                {directSubfolderNames.map((folderName) => {
+                  const booksInFolder = directSubfolderMap.get(folderName) || [];
                   return (
                     <div
                       key={`folder-${folderName}`}
                       className="folder-grid-card"
-                      onClick={() => setSelectedFolder(folderName)}
+                      onClick={() => setCurrentFolderPath((prev) => [...prev, folderName])}
                       title={`Open folder: ${folderName}`}
                     >
                       {/* Top folder title header (as in screenshot) */}
@@ -581,15 +633,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   );
                 })}
 
-                {/* 2. Root books as grid cards */}
-                {rootBooks.map((book) => renderBookCardGrid(book))}
+                {/* 2. Direct books as grid cards */}
+                {currentLevelBooks.map((book) => renderBookCardGrid(book))}
               </div>
             ) : (
-              /* List view: folders & top-level books */
+              /* List view: folders & direct books */
               <div className="books-list">
-                {/* 1. Folders as list items */}
-                {folderNames.map((folderName) => {
-                  const booksInFolder = folderMap.get(folderName) || [];
+                {/* 1. Direct subfolders as list items */}
+                {directSubfolderNames.map((folderName) => {
+                  const booksInFolder = directSubfolderMap.get(folderName) || [];
                   const sampleAuthors = Array.from(
                     new Set(
                       booksInFolder
@@ -602,7 +654,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     <div
                       key={`folder-${folderName}`}
                       className="folder-list-item"
-                      onClick={() => setSelectedFolder(folderName)}
+                      onClick={() => setCurrentFolderPath((prev) => [...prev, folderName])}
                     >
                       {/* Mini stacked cover thumbnail */}
                       <div className="folder-list-thumbnail-wrap">
@@ -647,8 +699,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   );
                 })}
 
-                {/* 2. Root books as list items */}
-                {rootBooks.map((book) => renderBookItemRow(book))}
+                {/* 2. Direct books as list items */}
+                {currentLevelBooks.map((book) => renderBookItemRow(book))}
               </div>
             )
           )}
@@ -718,7 +770,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               title={folderName}
             >
               <Folder size={10} />
-              <span>{folderName}</span>
+              <span>{folderName.replace(/\//g, ' / ')}</span>
             </span>
           )}
 
@@ -838,7 +890,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           {folderName && (
             <p className="book-list-subtitle" title={folderName}>
               <Folder size={11} style={{ opacity: 0.7 }} />
-              <span>{folderName}</span>
+              <span>{folderName.replace(/\//g, ' / ')}</span>
             </p>
           )}
 
