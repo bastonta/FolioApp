@@ -2,16 +2,13 @@
  * Singleton Token Manager
  *
  * Stores access token in a module-level variable so every import shares the
- * same value.  Prevents refresh-token races by queuing concurrent 401
+ * same value. Prevents refresh-token races by queuing concurrent 401
  * retries behind a single in-flight refresh request.
  *
- * Refresh strategy:
- *   1. Try `fetch` with `credentials: 'include'` (WebView cookie-based).
- *   2. If that fails, fall back to a Tauri Rust command that uses its own
- *      reqwest cookie jar.
+ * All refresh token requests and rotation are handled via Rust proxy commands.
  */
 
-import { fetch } from '@tauri-apps/plugin-http';
+import { invoke } from '@tauri-apps/api/core';
 
 // ─── Module-level state (shared across all imports) ──────────────────────
 
@@ -81,10 +78,11 @@ export function setServerUrl(url: string | null) {
 export function clearTokens() {
   accessToken = null;
   localStorage.removeItem(ACCESS_TOKEN_KEY);
+  invoke('clear_auth_cookies').catch(() => {});
 }
 
 /**
- * Refresh the access token.
+ * Refresh the access token via Rust proxy.
  *
  * If a refresh is already in flight, callers are queued and resolved once
  * the single refresh request completes — preventing concurrent refresh
@@ -104,34 +102,9 @@ export async function refreshAccessToken(): Promise<string> {
     const serverUrl = getServerUrl();
     if (!serverUrl) throw new Error('Server URL not configured');
 
-    let newToken: string | null = null;
-
-    // ── Strategy 1: fetch with credentials (WebView cookies) ──────────
-    try {
-      const res = await fetch(`${serverUrl}/api/identity/token/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        newToken = data.token ?? null;
-      }
-    } catch {
-      // Fetch failed (network, CORS, etc.) — try fallback
-    }
-
-    // ── Strategy 2: Tauri Rust proxy (has its own cookie jar) ─────────
-    if (!newToken) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        newToken = await invoke<string | null>('refresh_access_token', {
-          serverUrl,
-        });
-      } catch {
-        // Rust fallback also failed
-      }
-    }
+    const newToken = await invoke<string>('refresh_access_token', {
+      serverUrl,
+    });
 
     if (!newToken) {
       throw new Error('Token refresh failed');
@@ -149,19 +122,3 @@ export async function refreshAccessToken(): Promise<string> {
   }
 }
 
-/**
- * Notify the Rust side about a successful login so it can store the refresh
- * cookie in its own cookie jar (for the fallback strategy).
- */
-export async function notifyRustLogin(
-  serverUrl: string,
-  email: string,
-  password: string,
-): Promise<void> {
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('auth_login_proxy', { serverUrl, email, password });
-  } catch {
-    // Non-critical — fallback only
-  }
-}

@@ -12,7 +12,10 @@ pub fn run() {
         .manage(Mutex::new(AuthHttpClient::new()) as AuthHttpClientState)
         .invoke_handler(tauri::generate_handler![
             auth_proxy::auth_login_proxy,
+            auth_proxy::auth_login_2fa_proxy,
+            auth_proxy::auth_email_confirm_proxy,
             auth_proxy::refresh_access_token,
+            auth_proxy::auth_revoke_token,
             auth_proxy::clear_auth_cookies,
             fs_manager::get_default_download_dir,
             fs_manager::pick_folder,

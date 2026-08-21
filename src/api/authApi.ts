@@ -2,8 +2,9 @@
  * Identity / Authentication API functions.
  */
 
-import { apiPost } from './client';
-import { clearTokens, notifyRustLogin, getServerUrl } from './tokenManager';
+import { invoke } from '@tauri-apps/api/core';
+import { apiPost, type ApiError } from './client';
+import { clearTokens, getServerUrl, setAccessToken } from './tokenManager';
 import type {
   LoginResponse,
   Login2faResponse,
@@ -15,21 +16,58 @@ import type {
   PasswordResetValidationResponse,
 } from '../types/auth';
 
+interface AuthProxyResponse {
+  status: number;
+  body: string;
+}
+
+function handleProxyResponse<T>(res: AuthProxyResponse): T {
+  let data: any = null;
+  try {
+    data = res.body ? JSON.parse(res.body) : null;
+  } catch {
+    data = res.body;
+  }
+
+  if (res.status < 200 || res.status >= 300) {
+    let message = 'Request failed';
+    if (typeof data === 'object' && data !== null) {
+      if (Array.isArray(data.errors) && data.errors.length > 0 && data.errors[0]?.message) {
+        message = data.errors[0].message;
+      } else if (data.detail) {
+        message = data.detail;
+      } else if (data.message) {
+        message = data.message;
+      }
+    } else if (typeof data === 'string' && data) {
+      message = data;
+    }
+    const error: ApiError = {
+      status: res.status,
+      message,
+      data,
+    };
+    throw error;
+  }
+
+  return data as T;
+}
+
 export const authApi = {
   login: async (email: string, password: string): Promise<LoginResponse> => {
-    const res = await apiPost<LoginResponse>('/identity/login', {
+    const serverUrl = getServerUrl();
+    if (!serverUrl) throw new Error('Server URL not configured');
+
+    const res = await invoke<AuthProxyResponse>('auth_login_proxy', {
+      serverUrl,
       email,
       password,
     });
-    // If login succeeded without 2FA, also proxy through Rust so its cookie
-    // jar picks up the refresh token cookie for the fallback path.
-    if (!res.need2fa) {
-      const serverUrl = getServerUrl();
-      if (serverUrl) {
-        notifyRustLogin(serverUrl, email, password);
-      }
+    const data = handleProxyResponse<LoginResponse>(res);
+    if (!data.need2fa && data.token) {
+      setAccessToken(data.token);
     }
-    return res;
+    return data;
   },
 
   login2fa: async (
@@ -38,14 +76,21 @@ export const authApi = {
     code: string,
     type: Login2faType = 'code',
   ): Promise<Login2faResponse> => {
-    const res = await apiPost<Login2faResponse>('/identity/login-2fa', {
+    const serverUrl = getServerUrl();
+    if (!serverUrl) throw new Error('Server URL not configured');
+
+    const res = await invoke<AuthProxyResponse>('auth_login_2fa_proxy', {
+      serverUrl,
       userId,
       token,
       code,
-      type,
+      loginType: type,
     });
-    // Access token is auto-stored by client.ts
-    return res;
+    const data = handleProxyResponse<Login2faResponse>(res);
+    if (data.token) {
+      setAccessToken(data.token);
+    }
+    return data;
   },
 
   register: async (
@@ -64,11 +109,19 @@ export const authApi = {
     userId: string,
     code: string,
   ): Promise<EmailConfirmResponse> => {
-    // Token is auto-stored by client.ts
-    return apiPost<EmailConfirmResponse>('/identity/email-confirm', {
+    const serverUrl = getServerUrl();
+    if (!serverUrl) throw new Error('Server URL not configured');
+
+    const res = await invoke<AuthProxyResponse>('auth_email_confirm_proxy', {
+      serverUrl,
       userId,
       code,
     });
+    const data = handleProxyResponse<EmailConfirmResponse>(res);
+    if (data.token) {
+      setAccessToken(data.token);
+    }
+    return data;
   },
 
   emailConfirmResend: async (
@@ -105,18 +158,15 @@ export const authApi = {
   },
 
   logout: async (): Promise<void> => {
-    try {
-      await apiPost('/identity/token/revoke');
-    } catch {
-      // Ignore revoke errors — we clear locally regardless
+    const serverUrl = getServerUrl();
+    if (serverUrl) {
+      try {
+        await invoke('auth_revoke_token', { serverUrl });
+      } catch {
+        // Ignore revoke errors — we clear locally regardless
+      }
     }
     clearTokens();
-    // Also clear Rust-side cookies
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('clear_auth_cookies');
-    } catch {
-      // Non-critical
-    }
   },
 };
+
