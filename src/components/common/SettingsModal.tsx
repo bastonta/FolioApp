@@ -344,49 +344,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           {/* Page Turn Mode for Mobile */}
-          <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                fontSize: 14,
-                fontWeight: 600,
-                color: 'var(--text-primary)',
-                marginBottom: 6,
-              }}
-            >
-              <Smartphone size={18} style={{ color: 'var(--accent-color)' }} />
-              <span>Mobile Page Turn Gestures</span>
-            </label>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-              Choose how pages are turned on mobile devices. Tap uses 30% left to go back and 70% right to advance.
-            </p>
+          {isMobile && (
+            <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  marginBottom: 6,
+                }}
+              >
+                <Smartphone size={18} style={{ color: 'var(--accent-color)' }} />
+                <span>Mobile Page Turn Gestures</span>
+              </label>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                Choose how pages are turned on mobile devices. Tap uses 30% left to go back and 70% right to advance.
+              </p>
 
-            <div className="segmented-control" style={{ maxWidth: 360 }}>
-              <button
-                type="button"
-                className={`segmented-btn ${settings.pageTurnMethod === 'tap' ? 'active' : ''}`}
-                onClick={() => onUpdateSettings({ pageTurnMethod: 'tap' })}
-              >
-                Tap
-              </button>
-              <button
-                type="button"
-                className={`segmented-btn ${settings.pageTurnMethod === 'swipe' ? 'active' : ''}`}
-                onClick={() => onUpdateSettings({ pageTurnMethod: 'swipe' })}
-              >
-                Swipe
-              </button>
-              <button
-                type="button"
-                className={`segmented-btn ${(!settings.pageTurnMethod || settings.pageTurnMethod === 'both') ? 'active' : ''}`}
-                onClick={() => onUpdateSettings({ pageTurnMethod: 'both' })}
-              >
-                Both
-              </button>
+              <div className="segmented-control" style={{ maxWidth: 360 }}>
+                <button
+                  type="button"
+                  className={`segmented-btn ${settings.pageTurnMethod === 'tap' ? 'active' : ''}`}
+                  onClick={() => onUpdateSettings({ pageTurnMethod: 'tap' })}
+                >
+                  Tap
+                </button>
+                <button
+                  type="button"
+                  className={`segmented-btn ${settings.pageTurnMethod === 'swipe' ? 'active' : ''}`}
+                  onClick={() => onUpdateSettings({ pageTurnMethod: 'swipe' })}
+                >
+                  Swipe
+                </button>
+                <button
+                  type="button"
+                  className={`segmented-btn ${(!settings.pageTurnMethod || settings.pageTurnMethod === 'both') ? 'active' : ''}`}
+                  onClick={() => onUpdateSettings({ pageTurnMethod: 'both' })}
+                >
+                  Both
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
         </div>
 

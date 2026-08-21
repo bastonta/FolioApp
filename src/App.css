@@ -259,7 +259,7 @@ button {
    Sidebar
    ========================================================================== */
 .sidebar-container {
-  width: 310px;
+  width: min(310px, 85vw);
   height: 100%;
   background-color: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
@@ -2146,6 +2146,11 @@ foliate-view::part(foot) {
     width: 34px;
     height: 34px;
     flex-shrink: 0;
+  }
+
+  .sidebar-pin-btn,
+  .header-pin-btn {
+    display: none !important;
   }
 
   .header-pill-btn {

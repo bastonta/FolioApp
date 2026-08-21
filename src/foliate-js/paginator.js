@@ -829,9 +829,11 @@ export class Paginator extends HTMLElement {
         const touch = e.changedTouches[0]
         this.#touchState = {
             x: touch?.screenX, y: touch?.screenY,
+            startX: touch?.screenX, startY: touch?.screenY,
             t: e.timeStamp,
-            vx: 0, xy: 0,
+            vx: 0, vy: 0,
         }
+        this.#touchScrolled = false
     }
     #onTouchMove(e) {
         if (this.touchSwipeEnabled === false) return
@@ -843,23 +845,33 @@ export class Paginator extends HTMLElement {
             if (this.#touchScrolled) e.preventDefault()
             return
         }
-        e.preventDefault()
         const touch = e.changedTouches[0]
         const x = touch.screenX, y = touch.screenY
+        const startX = state.startX ?? state.x
+        const startY = state.startY ?? state.y
+        const totalDx = Math.abs(x - startX)
+        const totalDy = Math.abs(y - startY)
+        // Slop check: do not suppress click event or scroll if movement is micro jitter from a tap (< 8px)
+        if (!this.#touchScrolled && totalDx < 8 && totalDy < 8) {
+            return
+        }
+        e.preventDefault()
         const dx = state.x - x, dy = state.y - y
         const dt = e.timeStamp - state.t
         state.x = x
         state.y = y
         state.t = e.timeStamp
-        state.vx = dx / dt
-        state.vy = dy / dt
+        state.vx = dt > 0 ? dx / dt : 0
+        state.vy = dt > 0 ? dy / dt : 0
         this.#touchScrolled = true
         this.scrollBy(dx, dy)
     }
     #onTouchEnd() {
         if (this.touchSwipeEnabled === false) return
+        const hadScrolled = this.#touchScrolled
         this.#touchScrolled = false
         if (this.scrolled) return
+        if (!hadScrolled) return
 
         // XXX: Firefox seems to report scale as 1... sometimes...?
         // at this point I'm basically throwing `requestAnimationFrame` at

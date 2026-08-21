@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { ReaderSettings, ThemeName } from '../../types/reader';
+import { isMobileDevice } from '../../services/systemUi';
 import {
   BookOpen,
   Scroll,
@@ -24,6 +25,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
   triggerRef,
 }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
+  const isMobile = isMobileDevice();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -178,49 +180,52 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
           </div>
         )}
 
-        <div className="settings-divider" />
-
-        {/* Page Turn Mode (Mobile) */}
-        <div className="settings-section">
-          <div className="settings-row-between" style={{ marginBottom: 6 }}>
-            <label className="settings-label">Page Turn (Mobile)</label>
-            <span className="settings-val-text">
-              {(!settings.pageTurnMethod || settings.pageTurnMethod === 'both')
-                ? 'Tap & Swipe'
-                : settings.pageTurnMethod === 'tap'
-                ? 'Tap only'
-                : 'Swipe only'}
-            </span>
-          </div>
-          <div className="segmented-control">
-            <button
-              type="button"
-              className={`segmented-btn ${settings.pageTurnMethod === 'tap' ? 'active' : ''}`}
-              onClick={() => onUpdateSettings({ pageTurnMethod: 'tap' })}
-            >
-              <span>Tap</span>
-            </button>
-            <button
-              type="button"
-              className={`segmented-btn ${settings.pageTurnMethod === 'swipe' ? 'active' : ''}`}
-              onClick={() => onUpdateSettings({ pageTurnMethod: 'swipe' })}
-            >
-              <span>Swipe</span>
-            </button>
-            <button
-              type="button"
-              className={`segmented-btn ${(!settings.pageTurnMethod || settings.pageTurnMethod === 'both') ? 'active' : ''}`}
-              onClick={() => onUpdateSettings({ pageTurnMethod: 'both' })}
-            >
-              <span>Both</span>
-            </button>
-          </div>
-          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
-            {settings.pageTurnMethod === 'swipe'
-              ? 'Swipe horizontally to turn pages'
-              : 'Tap: 30% left to go back, 70% right to advance'}
-          </p>
-        </div>
+        {/* Page Turn Mode (Mobile only) */}
+        {isMobile && (
+          <>
+            <div className="settings-divider" />
+            <div className="settings-section">
+              <div className="settings-row-between" style={{ marginBottom: 6 }}>
+                <label className="settings-label">Page Turn (Mobile)</label>
+                <span className="settings-val-text">
+                  {(!settings.pageTurnMethod || settings.pageTurnMethod === 'both')
+                    ? 'Tap & Swipe'
+                    : settings.pageTurnMethod === 'tap'
+                    ? 'Tap only'
+                    : 'Swipe only'}
+                </span>
+              </div>
+              <div className="segmented-control">
+                <button
+                  type="button"
+                  className={`segmented-btn ${settings.pageTurnMethod === 'tap' ? 'active' : ''}`}
+                  onClick={() => onUpdateSettings({ pageTurnMethod: 'tap' })}
+                >
+                  <span>Tap</span>
+                </button>
+                <button
+                  type="button"
+                  className={`segmented-btn ${settings.pageTurnMethod === 'swipe' ? 'active' : ''}`}
+                  onClick={() => onUpdateSettings({ pageTurnMethod: 'swipe' })}
+                >
+                  <span>Swipe</span>
+                </button>
+                <button
+                  type="button"
+                  className={`segmented-btn ${(!settings.pageTurnMethod || settings.pageTurnMethod === 'both') ? 'active' : ''}`}
+                  onClick={() => onUpdateSettings({ pageTurnMethod: 'both' })}
+                >
+                  <span>Both</span>
+                </button>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
+                {settings.pageTurnMethod === 'swipe'
+                  ? 'Swipe horizontally to turn pages'
+                  : 'Tap: 30% left to go back, 70% right to advance'}
+              </p>
+            </div>
+          </>
+        )}
 
         <div className="settings-divider" />
 

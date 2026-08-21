@@ -251,6 +251,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   }, [settings]);
 
   const [showControls, setShowControls] = useState<boolean>(true);
+  const isMobile = isMobileDevice();
+  const isPinned = !isMobile && settings.sidebarPinned;
   const [metadata, setMetadata] = useState<BookMetadata | null>(null);
   const [toc, setTOC] = useState<TOCItem[]>([]);
   const [currentHref, setCurrentHref] = useState<string | null>(null);
@@ -314,7 +316,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         !isBookInfoOpenRef.current &&
         !footnoteRef.current &&
         !selectionRef.current &&
-        (!settingsRef.current.sidebarOpen || settingsRef.current.sidebarPinned)
+        (!settingsRef.current.sidebarOpen || (!isMobile && settingsRef.current.sidebarPinned))
       ) {
         setShowControls(false);
       }
@@ -548,7 +550,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               setFootnote(null);
               return;
             }
-            if (!settingsRef.current.sidebarPinned && settingsRef.current.sidebarOpen) {
+            if ((isMobile || !settingsRef.current.sidebarPinned) && settingsRef.current.sidebarOpen) {
               onUpdateSettings({ sidebarOpen: false });
               return;
             }
@@ -750,7 +752,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           }
 
           // 2. Unpinned sidebar dismissal
-          if (!settingsRef.current.sidebarPinned && settingsRef.current.sidebarOpen) {
+          if ((isMobile || !settingsRef.current.sidebarPinned) && settingsRef.current.sidebarOpen) {
             onUpdateSettings({ sidebarOpen: false });
             return;
           }
@@ -800,13 +802,26 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
                 cancelAutoHideRef.current();
               } else {
                 // If controls are hidden, use 30% back / 70% forward with center/top reveal
-                const winWidth = doc.defaultView?.innerWidth || window.innerWidth;
-                const winHeight = doc.defaultView?.innerHeight || window.innerHeight;
-                const xRatio = ev.clientX / winWidth;
-                const yRatio = ev.clientY / winHeight;
+                const viewerRect = viewerContainerRef.current?.getBoundingClientRect() || {
+                  left: 0,
+                  top: 0,
+                  width: window.innerWidth,
+                  height: window.innerHeight,
+                };
+                const iframe = (doc.defaultView?.frameElement as HTMLElement) || null;
+                const frameRect = iframe ? iframe.getBoundingClientRect() : { left: 0, top: 0 };
+
+                const tapScreenX = frameRect.left + ev.clientX - viewerRect.left;
+                const tapScreenY = frameRect.top + ev.clientY - viewerRect.top;
+
+                const screenWidth = viewerRect.width || window.innerWidth;
+                const screenHeight = viewerRect.height || window.innerHeight;
+
+                const xRatio = tapScreenX / screenWidth;
+                const yRatio = tapScreenY / screenHeight;
 
                 const isCenterTap = xRatio >= 0.35 && xRatio <= 0.65 && yRatio >= 0.35 && yRatio <= 0.65;
-                const isTopBarTap = ev.clientY <= 60;
+                const isTopBarTap = tapScreenY <= 60;
 
                 if (isCenterTap || isTopBarTap) {
                   setShowControls(true);
@@ -1035,7 +1050,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           setFootnote(null);
           return;
         }
-        if (!settings.sidebarPinned && settings.sidebarOpen) {
+        if ((isMobile || !settings.sidebarPinned) && settings.sidebarOpen) {
           onUpdateSettings({ sidebarOpen: false });
           return;
         }
@@ -1057,7 +1072,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide, clearAllSelections]);
+  }, [selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide, clearAllSelections, isMobile]);
 
   // TOC Navigation
   const handleSelectTOC = (href: string) => {
@@ -1066,7 +1081,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       clearAllSelections();
     }
     viewRef.current?.goTo(href);
-    if (!settings.sidebarPinned) {
+    if (isMobile || !settings.sidebarPinned) {
       onUpdateSettings({ sidebarOpen: false });
     }
   };
@@ -1110,7 +1125,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
   const handleSelectAnnotation = (ann: Annotation) => {
     viewRef.current?.showAnnotation(ann);
-    if (!settings.sidebarPinned) {
+    if (isMobile || !settings.sidebarPinned) {
       onUpdateSettings({ sidebarOpen: false });
     }
   };
@@ -1142,7 +1157,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       clearAllSelections();
     }
     viewRef.current?.goTo(bm.cfi);
-    if (!settings.sidebarPinned) {
+    if (isMobile || !settings.sidebarPinned) {
       onUpdateSettings({ sidebarOpen: false });
     }
   };
@@ -1168,13 +1183,16 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         }}
         isSettingsOpen={isSettingsOpen}
         settingsBtnRef={settingsBtnRef}
-        onTogglePin={() =>
-          onUpdateSettings({
-            sidebarPinned: !settings.sidebarPinned,
-            sidebarOpen: true,
-          })
+        onTogglePin={
+          isMobile
+            ? undefined
+            : () =>
+                onUpdateSettings({
+                  sidebarPinned: !settings.sidebarPinned,
+                  sidebarOpen: true,
+                })
         }
-        isPinned={settings.sidebarPinned}
+        isPinned={isPinned}
         chapterTitle={chapterTitle}
         onMouseEnter={() => {
           isHoveringControlsRef.current = true;
@@ -1188,8 +1206,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
       {/* Main Workspace: Sidebar + Reader */}
       <div className="reader-workspace">
-        {/* Floating backdrop for unpinned sidebar */}
-        {!settings.sidebarPinned && settings.sidebarOpen && (
+        {/* Floating backdrop for unpinned sidebar (always on mobile or when unpinned on desktop) */}
+        {(isMobile || !settings.sidebarPinned) && settings.sidebarOpen && (
           <div
             className="sidebar-floating-backdrop"
             onClick={() => onUpdateSettings({ sidebarOpen: false })}
@@ -1200,11 +1218,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         {/* Foliate Sidebar */}
         <Sidebar
           isOpen={settings.sidebarOpen}
-          isPinned={settings.sidebarPinned}
-          onTogglePin={() =>
-            onUpdateSettings({
-              sidebarPinned: !settings.sidebarPinned,
-            })
+          isPinned={isPinned}
+          onTogglePin={
+            isMobile
+              ? undefined
+              : () =>
+                  onUpdateSettings({
+                    sidebarPinned: !settings.sidebarPinned,
+                  })
           }
           activeTab={settings.activeTab}
           onTabChange={(tab) => onUpdateSettings({ activeTab: tab })}
@@ -1231,12 +1252,19 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               setIsSettingsOpen(false);
               return;
             }
-            if (!settings.sidebarPinned && settings.sidebarOpen) {
+            if ((isMobile || !settings.sidebarPinned) && settings.sidebarOpen) {
               onUpdateSettings({ sidebarOpen: false });
               return;
             }
             // If tapped directly on outer canvas / margin area on mobile
-            if (e.target === e.currentTarget || (e.target as HTMLElement).classList?.contains('foliate-viewport-wrap')) {
+            const targetEl = e.target as HTMLElement;
+            const isCanvasOrHost =
+              e.target === e.currentTarget ||
+              targetEl.classList?.contains('foliate-viewport-wrap') ||
+              targetEl.tagName?.toLowerCase() === 'foliate-view' ||
+              targetEl.closest?.('foliate-view') !== null;
+
+            if (isCanvasOrHost) {
               const isMobile = isMobileDevice();
               const method = settings.pageTurnMethod || 'both';
               const allowTapTurn = isMobile && (method === 'tap' || method === 'both');
