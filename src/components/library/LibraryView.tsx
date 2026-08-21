@@ -7,6 +7,7 @@ import {
   Trash2,
   Clock,
   Sparkles,
+  UserCircle,
 } from 'lucide-react';
 import {
   loadBookBlob,
@@ -24,6 +25,7 @@ interface LibraryViewProps {
   onOpenRecentBook: (book: RecentBook) => void;
   onDeleteRecentBook: (id: string) => void;
   onRefreshRecentBooks?: () => void;
+  onOpenProfile?: () => void;
 }
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
@@ -32,6 +34,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onOpenRecentBook,
   onDeleteRecentBook,
   onRefreshRecentBooks,
+  onOpenProfile,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -189,14 +192,28 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
         </div>
 
-        <button
-          type="button"
-          className="library-open-btn"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <FolderOpen size={18} />
-          <span>Open Book</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {onOpenProfile && (
+            <button
+              type="button"
+              className="header-icon-btn"
+              onClick={onOpenProfile}
+              title="Account & Profile"
+              style={{ width: 36, height: 36 }}
+            >
+              <UserCircle size={22} />
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="library-open-btn"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <FolderOpen size={18} />
+            <span>Open Book</span>
+          </button>
+        </div>
 
         <input
           ref={fileInputRef}

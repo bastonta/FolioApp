@@ -5,12 +5,13 @@
     "armeabi",
     "cdylib",
     "codegen",
+    "fileprovider",
     "folioapp",
     "proguard",
+    "reqwest",
     "rlib",
     "serde",
     "staticlib",
-    "tauri",
-    "fileprovider"
+    "tauri"
   ]
 }

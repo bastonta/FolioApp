@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { FoliateReader } from './components/reader/FoliateReader';
 import { LibraryView } from './components/library/LibraryView';
 import { ReaderSettings, RecentBook } from './types/reader';
@@ -16,7 +17,20 @@ import {
   formatContributor,
 } from './services/storage';
 import { setStatusBarVisible, setStatusBarTheme } from './services/systemUi';
+import { AuthProvider, useAuth } from './context/AuthContext';
+
+// Auth pages
+import { ServerSetup } from './pages/ServerSetup';
+import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ProfilePage } from './pages/ProfilePage';
+
+import './styles/auth.css';
 import './App.css';
+
+// ─── Active book state ───────────────────────────────────────────────────
 
 interface ActiveBookState {
   id: string;
@@ -25,10 +39,62 @@ interface ActiveBookState {
   author?: string;
 }
 
-export function App() {
+// ─── Route guard: requires authentication ────────────────────────────────
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading, serverUrl } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card" style={{ textAlign: 'center' }}>
+          <div className="auth-icon-badge" style={{ margin: '0 auto' }}>
+            <span className="auth-loading-spinner" />
+          </div>
+          <p style={{ color: 'var(--text-secondary)' }}>Loading…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!serverUrl) {
+    return <Navigate to="/server" replace />;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+// ─── Route guard: redirect if already authenticated ──────────────────────
+
+function GuestOnly({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading, serverUrl } = useAuth();
+
+  if (isLoading) {
+    return null;
+  }
+
+  if (!serverUrl) {
+    return <Navigate to="/server" replace />;
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+// ─── Main app with routes ────────────────────────────────────────────────
+
+function AppRoutes() {
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
   const [recentBooks, setRecentBooks] = useState<RecentBook[]>(() => loadRecentBooks());
   const [activeBook, setActiveBook] = useState<ActiveBookState | null>(null);
+  const navigate = useNavigate();
 
   // Synchronize native status bar icon appearance with the current app theme
   useEffect(() => {
@@ -144,26 +210,94 @@ export function App() {
     document.title = 'Folio — E-Book Reader';
   };
 
+  // Navigate to profile
+  const handleOpenProfile = () => {
+    navigate('/profile');
+  };
+
   return (
     <div className={`app-container theme-${settings.theme}`}>
-      {activeBook ? (
-        <FoliateReader
-          bookId={activeBook.id}
-          bookSource={activeBook.source}
-          settings={settings}
-          onUpdateSettings={handleUpdateSettings}
-          onBackToLibrary={handleBackToLibrary}
+      <Routes>
+        {/* ── Public auth routes ─────────────────────────────── */}
+        <Route path="/server" element={<ServerSetup />} />
+        <Route
+          path="/login"
+          element={
+            <GuestOnly>
+              <LoginPage />
+            </GuestOnly>
+          }
         />
-      ) : (
-        <LibraryView
-          recentBooks={recentBooks}
-          onOpenBookFile={handleOpenBookFile}
-          onOpenRecentBook={handleOpenRecentBook}
-          onDeleteRecentBook={handleDeleteRecentBook}
-          onRefreshRecentBooks={handleRefreshRecentBooks}
+        <Route
+          path="/register"
+          element={
+            <GuestOnly>
+              <RegisterPage />
+            </GuestOnly>
+          }
         />
-      )}
+        <Route
+          path="/confirm-email"
+          element={<ConfirmEmailPage />}
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            <GuestOnly>
+              <ForgotPasswordPage />
+            </GuestOnly>
+          }
+        />
+
+        {/* ── Protected routes ───────────────────────────────── */}
+        <Route
+          path="/profile"
+          element={
+            <RequireAuth>
+              <ProfilePage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/"
+          element={
+            <RequireAuth>
+              {activeBook ? (
+                <FoliateReader
+                  bookId={activeBook.id}
+                  bookSource={activeBook.source}
+                  settings={settings}
+                  onUpdateSettings={handleUpdateSettings}
+                  onBackToLibrary={handleBackToLibrary}
+                />
+              ) : (
+                <LibraryView
+                  recentBooks={recentBooks}
+                  onOpenBookFile={handleOpenBookFile}
+                  onOpenRecentBook={handleOpenRecentBook}
+                  onDeleteRecentBook={handleDeleteRecentBook}
+                  onRefreshRecentBooks={handleRefreshRecentBooks}
+                  onOpenProfile={handleOpenProfile}
+                />
+              )}
+            </RequireAuth>
+          }
+        />
+
+        {/* Catch-all */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </div>
+  );
+}
+
+// ─── Root component ──────────────────────────────────────────────────────
+
+export function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
   );
 }
 
