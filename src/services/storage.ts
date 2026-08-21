@@ -5,6 +5,7 @@ const RECENT_BOOKS_KEY = 'foliate_recent_books';
 const LOCATIONS_KEY = 'foliate_book_locations';
 const ANNOTATIONS_KEY = 'foliate_book_annotations';
 const BOOKMARKS_KEY = 'foliate_book_bookmarks';
+const LOCAL_CACHE_KEY = 'foliate_local_books_cache';
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
   flow: 'paginated',
@@ -19,6 +20,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   sidebarPinned: true,
   sidebarOpen: true,
   activeTab: 'contents',
+  downloadPath: '',
+  createSeriesFolder: true,
 };
 
 // IndexedDB for storing book files and covers
@@ -392,5 +395,28 @@ export function deleteBookmark(bookId: string, bookmarkId: string): void {
     localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(map));
   } catch (err) {
     console.error('Failed to delete bookmark:', err);
+  }
+}
+
+// Local Books Metadata Cache
+export function loadLocalBooksCache(): Record<string, { title: string; author: string; coverUrl?: string }> {
+  try {
+    const data = localStorage.getItem(LOCAL_CACHE_KEY);
+    return data ? JSON.parse(data) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveLocalBookCache(
+  bookId: string,
+  meta: { title: string; author: string; coverUrl?: string }
+): void {
+  try {
+    const current = loadLocalBooksCache();
+    current[bookId] = { ...current[bookId], ...meta };
+    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(current));
+  } catch (err) {
+    console.error('Failed to save local book cache:', err);
   }
 }

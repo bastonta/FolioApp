@@ -4,6 +4,7 @@
     "appcompat",
     "armeabi",
     "cdylib",
+    "chrono",
     "codegen",
     "fileprovider",
     "folioapp",

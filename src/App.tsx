@@ -2,20 +2,20 @@ import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { FoliateReader } from './components/reader/FoliateReader';
 import { LibraryView } from './components/library/LibraryView';
-import { ReaderSettings, RecentBook } from './types/reader';
+import { BrowseView } from './components/library/BrowseView';
+import { SettingsModal } from './components/common/SettingsModal';
+import { ReaderSettings } from './types/reader';
+import { LocalBookFile } from './types/browse';
 import {
   loadSettings,
   saveSettings,
-  loadRecentBooks,
-  saveRecentBook,
-  removeRecentBook,
-  storeBookBlob,
-  loadBookBlob,
-  storeBookCover,
-  blobToThumbnailDataUrl,
   formatLanguageMap,
   formatContributor,
+  storeBookCover,
+  blobToThumbnailDataUrl,
+  saveLocalBookCache,
 } from './services/storage';
+import { fileManager } from './services/fileManager';
 import { setStatusBarVisible, setStatusBarTheme } from './services/systemUi';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -92,9 +92,24 @@ function GuestOnly({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
-  const [recentBooks, setRecentBooks] = useState<RecentBook[]>(() => loadRecentBooks());
   const [activeBook, setActiveBook] = useState<ActiveBookState | null>(null);
+  const [currentView, setCurrentView] = useState<'library' | 'browse'>('library');
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const navigate = useNavigate();
+
+  // Initialize default download directory if not configured
+  useEffect(() => {
+    async function initDownloadDir() {
+      if (!settings.downloadPath) {
+        const defaultDir = await fileManager.getDefaultDownloadDir();
+        if (defaultDir) {
+          const updated = saveSettings({ downloadPath: defaultDir });
+          setSettings(updated);
+        }
+      }
+    }
+    initDownloadDir();
+  }, [settings.downloadPath]);
 
   // Synchronize native status bar icon appearance with the current app theme
   useEffect(() => {
@@ -107,98 +122,83 @@ function AppRoutes() {
     setSettings(updated);
   };
 
-  const handleRefreshRecentBooks = () => {
-    setRecentBooks(loadRecentBooks());
-  };
-
-  // Open book from File / Blob
-  const handleOpenBookFile = async (file: File | Blob, meta?: Partial<RecentBook>) => {
+  // Open a local book file in FoliateReader
+  const handleOpenLocalBook = async (
+    book: LocalBookFile,
+    cachedMeta?: { title?: string; author?: string; coverUrl?: string }
+  ) => {
     try {
-      const fileName = (file as File).name || 'book.epub';
-      const bookId = meta?.id || `book-${Date.now()}-${fileName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const filePath = book.filePath;
+      const fileName = book.fileName;
+      const blob = await fileManager.readBookFile(filePath);
 
-      // Store in IndexedDB for subsequent sessions
-      await storeBookBlob(bookId, file);
+      let title = cachedMeta?.title || fileName.replace(/\.[^/.]+$/, '');
+      let author = cachedMeta?.author || 'Unknown Author';
 
-      let title = meta?.title || fileName.replace(/\.[^/.]+$/, '');
-      let author = meta?.author || 'Unknown Author';
-      let coverUrl = meta?.coverUrl;
-
-      // Extract metadata & cover eagerly
-      try {
-        const { makeBook } = await import('./foliate-js/view.js');
-        const parsedBook: any = await makeBook(file);
-        if (parsedBook) {
-          if (parsedBook.metadata?.title) {
-            title = formatLanguageMap(parsedBook.metadata.title) || title;
-          }
-          if (parsedBook.metadata?.author || parsedBook.metadata?.creator) {
-            author = formatContributor(parsedBook.metadata.author || parsedBook.metadata.creator) || author;
-          }
-          if (parsedBook.getCover) {
-            const coverBlob = await Promise.resolve(parsedBook.getCover());
-            if (coverBlob) {
-              await storeBookCover(bookId, coverBlob);
-              coverUrl = await blobToThumbnailDataUrl(coverBlob);
+      // If not cached, extract metadata eagerly
+      if (!cachedMeta?.title) {
+        try {
+          const { makeBook } = await import('./foliate-js/view.js');
+          const parsedBook: any = await makeBook(blob);
+          if (parsedBook) {
+            if (parsedBook.metadata?.title) {
+              title = formatLanguageMap(parsedBook.metadata.title) || title;
             }
+            if (parsedBook.metadata?.author || parsedBook.metadata?.creator) {
+              author = formatContributor(parsedBook.metadata.author || parsedBook.metadata.creator) || author;
+            }
+            if (parsedBook.getCover) {
+              const coverBlob = await Promise.resolve(parsedBook.getCover());
+              if (coverBlob) {
+                await storeBookCover(book.id, coverBlob);
+                const thumbUrl = await blobToThumbnailDataUrl(coverBlob);
+                saveLocalBookCache(book.id, { title, author, coverUrl: thumbUrl });
+              } else {
+                saveLocalBookCache(book.id, { title, author });
+              }
+            } else {
+              saveLocalBookCache(book.id, { title, author });
+            }
+            parsedBook.destroy?.();
           }
-          parsedBook.destroy?.();
+        } catch (e) {
+          console.warn('Metadata extraction skipped or failed:', e);
         }
-      } catch (e) {
-        console.warn('Initial metadata extraction skipped or failed:', e);
       }
 
-      const recentItem: RecentBook = {
-        id: bookId,
+      setActiveBook({
+        id: book.id,
+        source: blob,
         title,
         author,
-        coverUrl,
-        progressFraction: 0,
-        lastOpenedAt: new Date().toISOString(),
-        fileName,
-        fileSize: file.size,
-      };
+      });
+    } catch (err) {
+      console.error('Failed to open local book file:', err);
+      alert('Не удалось открыть файл книги.');
+    }
+  };
 
-      saveRecentBook(recentItem);
-      setRecentBooks(loadRecentBooks());
+  // Open book from file path directly (e.g. from BrowseView after downloading)
+  const handleOpenBookFromPath = async (
+    filePath: string,
+    title?: string,
+    author?: string
+  ) => {
+    try {
+      const blob = await fileManager.readBookFile(filePath);
+      const fileName = filePath.split(/[\\/]/).pop() || 'book.epub';
+      const bookId = `local-${filePath.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
       setActiveBook({
         id: bookId,
-        source: file,
-        title: recentItem.title,
-        author: recentItem.author,
+        source: blob,
+        title: title || fileName.replace(/\.[^/.]+$/, ''),
+        author: author || 'Unknown Author',
       });
     } catch (err) {
-      console.error('Failed to open book file:', err);
-      alert('Could not open book file. Please ensure it is a valid EPUB file.');
+      console.error('Failed to open book from path:', err);
+      alert('Не удалось открыть скачанный файл книги.');
     }
-  };
-
-  // Open book from Recent list
-  const handleOpenRecentBook = async (book: RecentBook) => {
-    try {
-      const blob = await loadBookBlob(book.id);
-      if (blob) {
-        setActiveBook({
-          id: book.id,
-          source: blob,
-          title: book.title,
-          author: book.author,
-        });
-      } else {
-        alert(
-          `Book data for "${book.title}" is no longer cached in storage. Please re-open the file.`
-        );
-      }
-    } catch (err) {
-      console.error('Failed to load recent book blob:', err);
-    }
-  };
-
-  // Delete recent book
-  const handleDeleteRecentBook = async (id: string) => {
-    await removeRecentBook(id);
-    setRecentBooks(loadRecentBooks());
   };
 
   // Back to Library
@@ -206,7 +206,6 @@ function AppRoutes() {
     setStatusBarVisible(true);
     setStatusBarTheme(settings.theme);
     setActiveBook(null);
-    setRecentBooks(loadRecentBooks());
     document.title = 'Folio — E-Book Reader';
   };
 
@@ -270,13 +269,18 @@ function AppRoutes() {
                   onUpdateSettings={handleUpdateSettings}
                   onBackToLibrary={handleBackToLibrary}
                 />
+              ) : currentView === 'browse' ? (
+                <BrowseView
+                  settings={settings}
+                  onBackToLocalLibrary={() => setCurrentView('library')}
+                  onOpenBookFromPath={handleOpenBookFromPath}
+                />
               ) : (
                 <LibraryView
-                  recentBooks={recentBooks}
-                  onOpenBookFile={handleOpenBookFile}
-                  onOpenRecentBook={handleOpenRecentBook}
-                  onDeleteRecentBook={handleDeleteRecentBook}
-                  onRefreshRecentBooks={handleRefreshRecentBooks}
+                  settings={settings}
+                  onOpenLocalBook={handleOpenLocalBook}
+                  onOpenBrowse={() => setCurrentView('browse')}
+                  onOpenSettings={() => setIsSettingsModalOpen(true)}
                   onOpenProfile={handleOpenProfile}
                 />
               )}
@@ -287,6 +291,14 @@ function AppRoutes() {
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+
+      {/* App Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        settings={settings}
+        onUpdateSettings={handleUpdateSettings}
+      />
     </div>
   );
 }

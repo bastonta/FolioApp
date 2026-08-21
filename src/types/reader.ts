@@ -68,6 +68,8 @@ export interface ReaderSettings {
   sidebarPinned: boolean;
   sidebarOpen: boolean;
   activeTab: 'contents' | 'annotations' | 'bookmarks';
+  downloadPath?: string;
+  createSeriesFolder?: boolean;
 }
 
 export interface FootnoteData {

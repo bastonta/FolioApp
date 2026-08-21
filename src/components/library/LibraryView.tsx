@@ -1,185 +1,174 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { RecentBook } from '../../types/reader';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   BookOpen,
-  FolderOpen,
-  UploadCloud,
+  Folder,
+  Globe,
+  Settings as SettingsIcon,
   Trash2,
   Clock,
   Sparkles,
   UserCircle,
+  RefreshCw,
+  Search,
+  FolderOpen,
 } from 'lucide-react';
+import { fileManager } from '../../services/fileManager';
 import {
-  loadBookBlob,
-  loadBookCover,
+  loadLocalBooksCache,
+  saveLocalBookCache,
   storeBookCover,
   blobToThumbnailDataUrl,
-  updateRecentBookMetadata,
   formatLanguageMap,
   formatContributor,
+  loadLastLocation,
 } from '../../services/storage';
+import { LocalBookFile } from '../../types/browse';
+import { ReaderSettings } from '../../types/reader';
 
 interface LibraryViewProps {
-  recentBooks: RecentBook[];
-  onOpenBookFile: (file: File | Blob, bookMeta?: Partial<RecentBook>) => void;
-  onOpenRecentBook: (book: RecentBook) => void;
-  onDeleteRecentBook: (id: string) => void;
-  onRefreshRecentBooks?: () => void;
-  onOpenProfile?: () => void;
+  settings: ReaderSettings;
+  onOpenLocalBook: (file: LocalBookFile, meta?: { title?: string; author?: string; coverUrl?: string }) => void;
+  onOpenBrowse: () => void;
+  onOpenSettings: () => void;
+  onOpenProfile: () => void;
 }
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
-  recentBooks,
-  onOpenBookFile,
-  onOpenRecentBook,
-  onDeleteRecentBook,
-  onRefreshRecentBooks,
+  settings,
+  onOpenLocalBook,
+  onOpenBrowse,
+  onOpenSettings,
   onOpenProfile,
 }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
+  const [localBooks, setLocalBooks] = useState<LocalBookFile[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
 
-  // Auto-enrich any existing recent books missing cover or author metadata
+  // Metadata & cover cache state: bookId -> { title, author, coverUrl }
+  const [metaCache, setMetaCache] = useState<Record<string, { title: string; author: string; coverUrl?: string }>>(() =>
+    loadLocalBooksCache()
+  );
+
+  // Scan local books directory
+  const scanFolder = useCallback(async () => {
+    if (!settings.downloadPath) {
+      setLocalBooks([]);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const files = await fileManager.scanLocalBooks(settings.downloadPath);
+      setLocalBooks(files);
+    } catch (err) {
+      console.error('Failed to scan local books:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [settings.downloadPath]);
+
+  useEffect(() => {
+    scanFolder();
+  }, [scanFolder]);
+
+  // Enrich local books metadata asynchronously
   useEffect(() => {
     let isCancelled = false;
 
-    async function enrichBooks() {
-      const needsEnrichment = recentBooks.filter(
-        (b) =>
-          !b.coverUrl ||
-          b.coverUrl.startsWith('blob:') ||
-          !b.author ||
-          b.author === 'Unknown Author'
-      );
+    async function enrichLocalBooks() {
+      const currentCache = loadLocalBooksCache();
+      const needsEnrich = localBooks.filter((b) => !currentCache[b.id]);
 
-      if (needsEnrichment.length === 0) return;
+      if (needsEnrich.length === 0) return;
 
-      let changed = false;
-
-      for (const book of needsEnrichment) {
+      for (const book of needsEnrich) {
         if (isCancelled) break;
-
-        const missingCover = !book.coverUrl || book.coverUrl.startsWith('blob:');
-        const missingAuthor = !book.author || book.author === 'Unknown Author';
-
         try {
-          let coverBlob: Blob | null = null;
-          if (missingCover) {
-            coverBlob = await loadBookCover(book.id);
-          }
+          // Read book file bytes
+          const blob = await fileManager.readBookFile(book.filePath);
+          if (!blob) continue;
 
-          let newTitle = book.title;
-          let newAuthor = book.author;
+          let title = book.fileName.replace(/\.[^/.]+$/, '');
+          let author = 'Unknown Author';
+          let coverUrl: string | undefined;
 
-          if (!coverBlob || missingAuthor) {
-            const bookBlob = await loadBookBlob(book.id);
-            if (bookBlob) {
-              try {
-                const { makeBook } = await import('../../foliate-js/view.js');
-                const parsedBook: any = await makeBook(bookBlob);
-                if (parsedBook) {
-                  if (parsedBook.metadata?.title) {
-                    newTitle = formatLanguageMap(parsedBook.metadata.title) || newTitle;
-                  }
-                  if (parsedBook.metadata?.author || parsedBook.metadata?.creator) {
-                    newAuthor =
-                      formatContributor(
-                        parsedBook.metadata.author || parsedBook.metadata.creator
-                      ) || newAuthor;
-                  }
-                  if (!coverBlob && parsedBook.getCover) {
-                    coverBlob = await Promise.resolve(parsedBook.getCover());
-                    if (coverBlob) {
-                      await storeBookCover(book.id, coverBlob);
-                    }
-                  }
-                  parsedBook.destroy?.();
-                }
-              } catch (e) {
-                console.warn('Failed parsing book for metadata:', e);
+          try {
+            const { makeBook } = await import('../../foliate-js/view.js');
+            const parsedBook: any = await makeBook(blob);
+            if (parsedBook) {
+              if (parsedBook.metadata?.title) {
+                title = formatLanguageMap(parsedBook.metadata.title) || title;
               }
+              if (parsedBook.metadata?.author || parsedBook.metadata?.creator) {
+                author = formatContributor(parsedBook.metadata.author || parsedBook.metadata.creator) || author;
+              }
+              if (parsedBook.getCover) {
+                const coverBlob = await Promise.resolve(parsedBook.getCover());
+                if (coverBlob) {
+                  await storeBookCover(book.id, coverBlob);
+                  coverUrl = await blobToThumbnailDataUrl(coverBlob);
+                }
+              }
+              parsedBook.destroy?.();
             }
+          } catch (e) {
+            console.warn('Metadata extraction failed for:', book.fileName, e);
           }
 
-          let thumbUrl =
-            book.coverUrl && !book.coverUrl.startsWith('blob:')
-              ? book.coverUrl
-              : undefined;
+          const metaItem = { title, author, coverUrl };
+          saveLocalBookCache(book.id, metaItem);
 
-          if (coverBlob) {
-            thumbUrl = await blobToThumbnailDataUrl(coverBlob);
-          }
-
-          if (
-            (newTitle && newTitle !== book.title) ||
-            (newAuthor && newAuthor !== book.author) ||
-            (thumbUrl && thumbUrl !== book.coverUrl)
-          ) {
-            updateRecentBookMetadata(book.id, {
-              title: newTitle,
-              author: newAuthor,
-              coverUrl: thumbUrl,
-            });
-            changed = true;
+          if (!isCancelled) {
+            setMetaCache((prev) => ({ ...prev, [book.id]: metaItem }));
           }
         } catch (err) {
-          console.warn('Enrichment error for book', book.id, err);
+          console.warn('Error enriching book:', book.fileName, err);
         }
-      }
-
-      if (changed && !isCancelled) {
-        onRefreshRecentBooks?.();
       }
     }
 
-    enrichBooks();
+    enrichLocalBooks();
 
     return () => {
       isCancelled = true;
     };
-  }, [recentBooks, onRefreshRecentBooks]);
+  }, [localBooks]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      onOpenBookFile(file, {
-        id: `book-${Date.now()}-${file.name}`,
-        fileName: file.name,
-        fileSize: file.size,
-        title: file.name.replace(/\.[^/.]+$/, ''),
-      });
+  // Delete local book
+  const handleDeleteBook = async (book: LocalBookFile, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const name = metaCache[book.id]?.title || book.fileName;
+    if (confirm(`Удалить книгу "${name}" с устройства?`)) {
+      await fileManager.deleteBookFile(book.filePath);
+      await scanFolder();
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const item = Array.from(e.dataTransfer.items).find((i) => i.kind === 'file');
-    if (item) {
-      const file = item.getAsFile();
-      if (file) {
-        onOpenBookFile(file, {
-          id: `book-${Date.now()}-${file.name}`,
-          fileName: file.name,
-          fileSize: file.size,
-          title: file.name.replace(/\.[^/.]+$/, ''),
-        });
-      }
-    }
-  };
+  // Group / folders
+  const allFolders = Array.from(
+    new Set(localBooks.map((b) => b.folderName).filter(Boolean) as string[])
+  );
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
+  // Filter books by search and selected folder
+  const filteredBooks = localBooks.filter((book) => {
+    const meta = metaCache[book.id];
+    const title = meta?.title || book.fileName;
+    const author = meta?.author || '';
+    const folder = book.folderName || '';
 
-  const handleDragLeave = () => {
-    setIsDragOver(false);
-  };
+    const matchesSearch =
+      !searchQuery.trim() ||
+      title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      author.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      folder.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesFolder = !selectedFolder || folder === selectedFolder;
+
+    return matchesSearch && matchesFolder;
+  });
 
   return (
-    <div className="library-view-container">
+    <div className="library-view-container" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Top Header */}
       <header className="library-header">
         <div className="library-brand">
@@ -188,120 +177,279 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
           <div>
             <h1 className="library-title">Folio</h1>
-            <p className="library-subtitle">EPUB3 & E-Book Reader</p>
+            <p className="library-subtitle">Моя библиотека</p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {onOpenProfile && (
-            <button
-              type="button"
-              className="header-icon-btn"
-              onClick={onOpenProfile}
-              title="Account & Profile"
-              style={{ width: 36, height: 36 }}
-            >
-              <UserCircle size={22} />
-            </button>
-          )}
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Browse Folio Online Library */}
           <button
             type="button"
             className="library-open-btn"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={onOpenBrowse}
+            title="Каталог Folio (Онлайн библиотека)"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            <FolderOpen size={18} />
-            <span>Open Book</span>
+            <Globe size={18} />
+            <span>Каталог Folio</span>
+          </button>
+
+          {/* Refresh Folder */}
+          <button
+            type="button"
+            className="header-icon-btn"
+            onClick={scanFolder}
+            title="Обновить список книг"
+            style={{ width: 36, height: 36 }}
+          >
+            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+          </button>
+
+          {/* Settings */}
+          <button
+            type="button"
+            className="header-icon-btn"
+            onClick={onOpenSettings}
+            title="Настройки папки и темы"
+            style={{ width: 36, height: 36 }}
+          >
+            <SettingsIcon size={18} />
+          </button>
+
+          {/* Profile */}
+          <button
+            type="button"
+            className="header-icon-btn"
+            onClick={onOpenProfile}
+            title="Профиль и аккаунт"
+            style={{ width: 36, height: 36 }}
+          >
+            <UserCircle size={22} />
           </button>
         </div>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".epub,.mobi,.azw3,.fb2,.cbz"
-          style={{ display: 'none' }}
-          onChange={handleFileChange}
-        />
       </header>
 
       {/* Main Content */}
-      <main className="library-main-content">
-        {/* Drag & Drop Zone */}
-        <div
-          className={`library-dropzone ${isDragOver ? 'drag-over' : ''}`}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <UploadCloud size={40} className="dropzone-icon" />
-          <h3 className="dropzone-title">Drop your EPUB book here</h3>
-          <p className="dropzone-hint">
-            or click to browse from your computer (EPUB3, MOBI, AZW3, FB2, CBZ)
-          </p>
-        </div>
+      <main className="library-main-content" style={{ flex: 1, overflowY: 'auto' }}>
+        {/* Search & Folder filters */}
+        {localBooks.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <Search
+                  size={16}
+                  style={{
+                    position: 'absolute',
+                    left: 12,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: 'var(--text-muted)',
+                  }}
+                />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Поиск по моим книгам..."
+                  className="auth-input"
+                  style={{ paddingLeft: 36, height: 38, fontSize: 13 }}
+                />
+              </div>
+            </div>
 
-        {/* Recent Books List */}
+            {/* Folder filter pills */}
+            {allFolders.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+                <button
+                  type="button"
+                  className={`theme-pill ${!selectedFolder ? 'active' : ''}`}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: 12,
+                    borderRadius: 'var(--radius-full)',
+                    whiteSpace: 'nowrap',
+                  }}
+                  onClick={() => setSelectedFolder(null)}
+                >
+                  Все книги ({localBooks.length})
+                </button>
+                {allFolders.map((folder) => {
+                  const count = localBooks.filter(
+                    (b) => b.folderName === folder
+                  ).length;
+                  return (
+                    <button
+                      key={folder}
+                      type="button"
+                      className={`theme-pill ${selectedFolder === folder ? 'active' : ''}`}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: 12,
+                        borderRadius: 'var(--radius-full)',
+                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                      onClick={() => setSelectedFolder(folder)}
+                    >
+                      <Folder size={12} />
+                      <span>{folder}</span>
+                      <span style={{ opacity: 0.7 }}>({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Local Books Section */}
         <section className="library-recent-section">
           <div className="recent-section-header">
-            <h2 className="recent-section-title">Recent Books</h2>
-            {recentBooks.length > 0 && (
+            <h2 className="recent-section-title">
+              {selectedFolder ? `Серия: ${selectedFolder}` : 'Книги на устройстве'}
+            </h2>
+            {filteredBooks.length > 0 && (
               <span className="recent-section-count">
-                {recentBooks.length} {recentBooks.length === 1 ? 'book' : 'books'}
+                {filteredBooks.length} {filteredBooks.length === 1 ? 'книга' : 'книг'}
               </span>
             )}
           </div>
 
-          {recentBooks.length === 0 ? (
+          {!settings.downloadPath ? (
             <div className="library-empty-box">
-              <Sparkles size={32} className="empty-box-icon" />
-              <p>No recent books yet. Open an EPUB file to start reading!</p>
+              <FolderOpen size={40} className="empty-box-icon" />
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
+                Папка для книг не настроена
+              </h3>
+              <p style={{ maxWidth: 400 }}>
+                Укажите папку на вашем устройстве для автоматического поиска и сохранения книг.
+              </p>
+              <button
+                type="button"
+                className="auth-btn-primary"
+                onClick={onOpenSettings}
+                style={{ marginTop: 8 }}
+              >
+                Настроить папку
+              </button>
+            </div>
+          ) : localBooks.length === 0 ? (
+            <div className="library-empty-box">
+              <Sparkles size={40} className="empty-box-icon" />
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
+                В папке пока нет книг
+              </h3>
+              <p style={{ maxWidth: 420 }}>
+                Папка: <code style={{ fontSize: 12 }}>{settings.downloadPath}</code>
+              </p>
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="auth-btn-primary"
+                  onClick={onOpenBrowse}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Globe size={16} />
+                  <span>Перейти в Каталог Folio</span>
+                </button>
+                <button
+                  type="button"
+                  className="auth-btn-secondary"
+                  onClick={scanFolder}
+                >
+                  Обновить
+                </button>
+              </div>
+            </div>
+          ) : filteredBooks.length === 0 ? (
+            <div className="library-empty-box">
+              <p>По вашему запросу ничего не найдено.</p>
             </div>
           ) : (
             <div className="books-grid">
-              {recentBooks.map((book) => {
-                const percent = Math.round((book.progressFraction || 0) * 100);
+              {filteredBooks.map((book) => {
+                const meta = metaCache[book.id];
+                const title = meta?.title || book.fileName.replace(/\.[^/.]+$/, '');
+                const author = meta?.author || 'Unknown Author';
+                const folderName = book.folderName;
+
+                // Reading location & progress
+                const location = loadLastLocation(book.id);
+                const percent = Math.round((location?.fraction || 0) * 100);
+
                 return (
                   <div
                     key={book.id}
                     className="book-card"
-                    onClick={() => onOpenRecentBook(book)}
+                    onClick={() => onOpenLocalBook(book, meta)}
                   >
                     <div className="book-card-cover-wrap">
-                      {book.coverUrl && !failedImages[book.id] ? (
+                      {/* Background placeholder */}
+                      <div className="book-card-cover-placeholder">
+                        <BookOpen size={36} />
+                      </div>
+
+                      {/* Cover image */}
+                      {meta?.coverUrl && (
                         <img
-                          src={book.coverUrl}
-                          alt={book.title}
+                          src={meta.coverUrl}
+                          alt={title}
                           className="book-card-cover"
-                          onError={() =>
-                            setFailedImages((prev) => ({ ...prev, [book.id]: true }))
-                          }
+                          loading="lazy"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
                         />
-                      ) : (
-                        <div className="book-card-cover-placeholder">
-                          <BookOpen size={36} />
-                        </div>
                       )}
+
+                      {/* Folder/Series badge */}
+                      {folderName && (
+                        <span
+                          style={{
+                            position: 'absolute',
+                            top: 6,
+                            left: 6,
+                            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                            color: '#c084fc',
+                            fontSize: 10,
+                            fontWeight: 600,
+                            padding: '2px 6px',
+                            borderRadius: 6,
+                            zIndex: 5,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            maxWidth: '85%',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={folderName}
+                        >
+                          <Folder size={10} />
+                          <span>{folderName}</span>
+                        </span>
+                      )}
+
                       <button
                         type="button"
                         className="book-card-delete-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteRecentBook(book.id);
-                        }}
-                        title="Remove from recent books"
-                        aria-label="Remove book"
+                        onClick={(e) => handleDeleteBook(book, e)}
+                        title="Удалить файл книги"
+                        aria-label="Удалить книгу"
                       >
-                        <Trash2 size={15} />
+                        <Trash2 size={14} />
                       </button>
                     </div>
 
                     <div className="book-card-details">
-                      <h4 className="book-card-title" title={book.title}>
-                        {book.title || 'Untitled'}
+                      <h4 className="book-card-title" title={title}>
+                        {title}
                       </h4>
-                      <p className="book-card-author" title={book.author}>
-                        {book.author || 'Unknown Author'}
+                      <p className="book-card-author" title={author}>
+                        {author}
                       </p>
 
                       <div className="book-card-progress-wrap">
@@ -314,17 +462,34 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         <span className="book-card-percent">{percent}%</span>
                       </div>
 
-                      {book.lastOpenedAt && (
-                        <div className="book-card-date">
-                          <Clock size={12} />
-                          <span>
-                            {new Date(book.lastOpenedAt).toLocaleDateString(undefined, {
-                              month: 'short',
-                              day: 'numeric',
-                            })}
-                          </span>
-                        </div>
-                      )}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginTop: 4,
+                          fontSize: 11,
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        <span>
+                          {book.fileSize
+                            ? `${(book.fileSize / (1024 * 1024)).toFixed(1)} MB`
+                            : ''}
+                        </span>
+
+                        {book.modifiedAt && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <Clock size={11} />
+                            <span>
+                              {new Date(book.modifiedAt).toLocaleDateString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                              })}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

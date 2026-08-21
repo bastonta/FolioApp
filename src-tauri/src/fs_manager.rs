@@ -1,0 +1,282 @@
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use tokio::fs;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBookFile {
+    pub id: String,
+    pub file_path: String,
+    pub file_name: String,
+    pub relative_path: String,
+    pub folder_name: Option<String>,
+    pub file_size: u64,
+    pub modified_at: Option<String>,
+}
+
+fn sanitize_filename_part(name: &str) -> String {
+    let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+    let mut clean: String = name
+        .chars()
+        .map(|c| if invalid_chars.contains(&c) || c.is_control() { '_' } else { c })
+        .collect();
+    
+    clean = clean.trim().to_string();
+    if clean.is_empty() {
+        "untitled".to_string()
+    } else {
+        clean
+    }
+}
+
+#[tauri::command]
+pub async fn get_default_download_dir(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let base_dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().document_dir())
+        .or_else(|_| app.path().app_local_data_dir())
+        .or_else(|_| app.path().app_data_dir())
+        .map_err(|e| format!("Failed to resolve default directory: {e}"))?;
+
+    let folio_dir = base_dir.join("FolioBooks");
+    if !folio_dir.exists() {
+        fs::create_dir_all(&folio_dir)
+            .await
+            .map_err(|e| format!("Failed to create default folder: {e}"))?;
+    }
+
+    Ok(folio_dir.to_string_lossy().to_string())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+pub async fn pick_folder(default_path: Option<String>) -> Result<Option<String>, String> {
+    let mut dialog = rfd::AsyncFileDialog::new().set_title("Select Books Folder");
+    
+    if let Some(path_str) = default_path {
+        let p = PathBuf::from(path_str);
+        if p.exists() {
+            dialog = dialog.set_directory(&p);
+        }
+    }
+
+    let folder = dialog.pick_folder().await;
+    Ok(folder.map(|f| f.path().to_string_lossy().to_string()))
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+pub async fn pick_folder(_default_path: Option<String>) -> Result<Option<String>, String> {
+    Ok(None)
+}
+
+#[tauri::command]
+pub async fn scan_local_books(dir_path: String) -> Result<Vec<LocalBookFile>, String> {
+    let base = PathBuf::from(&dir_path);
+    if !base.exists() || !base.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut books = Vec::new();
+    let mut stack = vec![base.clone()];
+
+    while let Some(current_dir) = stack.pop() {
+        let mut entries = match fs::read_dir(&current_dir).await {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path.is_dir() {
+                // Avoid hidden directories
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if !name.starts_with('.') {
+                        stack.push(path);
+                    }
+                }
+            } else if path.is_file() {
+                // Scan ONLY .epub files as requested
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if ext.eq_ignore_ascii_case("epub") {
+                        let file_name = path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("book.epub")
+                            .to_string();
+
+                        let rel_path = path
+                            .strip_prefix(&base)
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .replace('\\', "/");
+
+                        let folder_name = if let Some(parent) = path.parent() {
+                            if parent != base {
+                                parent.file_name().and_then(|n| n.to_str()).map(|s| s.to_string())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        let metadata = entry.metadata().await.ok();
+                        let file_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                        let modified_at = metadata.and_then(|m| m.modified().ok()).map(|time| {
+                            let datetime: chrono::DateTime<chrono::Utc> = time.into();
+                            datetime.to_rfc3339()
+                        });
+
+                        let id = format!("local-{}", rel_path.replace(['/', '\\', ' ', '.'], "_"));
+
+                        books.push(LocalBookFile {
+                            id,
+                            file_path: path.to_string_lossy().to_string(),
+                            file_name,
+                            relative_path: rel_path,
+                            folder_name,
+                            file_size,
+                            modified_at,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by file_name ascending
+    books.sort_by(|a, b| a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()));
+
+    Ok(books)
+}
+
+#[tauri::command]
+pub async fn read_book_file(file_path: String) -> Result<Vec<u8>, String> {
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {file_path}"));
+    }
+
+    fs::read(path)
+        .await
+        .map_err(|e| format!("Failed to read file '{file_path}': {e}"))
+}
+
+#[tauri::command]
+pub async fn download_book_file(
+    server_url: String,
+    token: Option<String>,
+    book_id: String,
+    file_name: String,
+    series_name: Option<String>,
+    base_dir: String,
+    custom_target_dir: Option<String>,
+) -> Result<String, String> {
+    let target_dir = if let Some(custom) = custom_target_dir {
+        if !custom.trim().is_empty() {
+            PathBuf::from(custom)
+        } else {
+            PathBuf::from(&base_dir)
+        }
+    } else if let Some(series) = series_name {
+        let clean_series = sanitize_filename_part(&series);
+        if !clean_series.is_empty() {
+            PathBuf::from(&base_dir).join(clean_series)
+        } else {
+            PathBuf::from(&base_dir)
+        }
+    } else {
+        PathBuf::from(&base_dir)
+    };
+
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir)
+            .await
+            .map_err(|e| format!("Failed to create directory '{:?}': {e}", target_dir))?;
+    }
+
+    let mut clean_name = sanitize_filename_part(&file_name);
+    if !clean_name.to_lowercase().ends_with(".epub") {
+        clean_name = format!("{clean_name}.epub");
+    }
+
+    let final_path = target_dir.join(&clean_name);
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/books/{}/download", server_url.trim_end_matches('/'), book_id);
+
+    let mut request = client.get(&url);
+    if let Some(t) = token {
+        if !t.is_empty() {
+            request = request.header("Authorization", format!("Bearer {t}"));
+        }
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("Download request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Server returned status {} when downloading book",
+            response.status()
+        ));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read book response body: {e}"))?;
+
+    fs::write(&final_path, bytes)
+        .await
+        .map_err(|e| format!("Failed to save book to '{:?}': {e}", final_path))?;
+
+    Ok(final_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn delete_book_file(file_path: String) -> Result<bool, String> {
+    let path = Path::new(&file_path);
+    if path.exists() && path.is_file() {
+        fs::remove_file(path)
+            .await
+            .map_err(|e| format!("Failed to delete file '{file_path}': {e}"))?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+pub async fn check_book_downloaded(
+    base_dir: String,
+    file_name: String,
+    series_name: Option<String>,
+) -> Result<Option<String>, String> {
+    let mut clean_name = sanitize_filename_part(&file_name);
+    if !clean_name.to_lowercase().ends_with(".epub") {
+        clean_name = format!("{clean_name}.epub");
+    }
+
+    // 1. Check in series directory if specified
+    if let Some(series) = series_name {
+        let clean_series = sanitize_filename_part(&series);
+        let series_file = PathBuf::from(&base_dir).join(clean_series).join(&clean_name);
+        if series_file.exists() && series_file.is_file() {
+            return Ok(Some(series_file.to_string_lossy().to_string()));
+        }
+    }
+
+    // 2. Check directly in base directory
+    let root_file = PathBuf::from(&base_dir).join(&clean_name);
+    if root_file.exists() && root_file.is_file() {
+        return Ok(Some(root_file.to_string_lossy().to_string()));
+    }
+
+    Ok(None)
+}
