@@ -18,9 +18,15 @@ fn sanitize_filename_part(name: &str) -> String {
     let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     let mut clean: String = name
         .chars()
-        .map(|c| if invalid_chars.contains(&c) || c.is_control() { '_' } else { c })
+        .map(|c| {
+            if invalid_chars.contains(&c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
-    
+
     clean = clean.trim().to_string();
     if clean.is_empty() {
         "untitled".to_string()
@@ -54,7 +60,7 @@ pub async fn get_default_download_dir(app: tauri::AppHandle) -> Result<String, S
 #[tauri::command]
 pub async fn pick_folder(default_path: Option<String>) -> Result<Option<String>, String> {
     let mut dialog = rfd::AsyncFileDialog::new().set_title("Select Books Folder");
-    
+
     if let Some(path_str) = default_path {
         let p = PathBuf::from(path_str);
         if p.exists() {
@@ -115,7 +121,10 @@ pub async fn scan_local_books(dir_path: String) -> Result<Vec<LocalBookFile>, St
 
                         let folder_name = if let Some(parent) = path.parent() {
                             if parent != base {
-                                parent.file_name().and_then(|n| n.to_str()).map(|s| s.to_string())
+                                parent
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .map(|s| s.to_string())
                             } else {
                                 None
                             }
@@ -205,8 +214,20 @@ pub async fn download_book_file(
 
     let final_path = target_dir.join(&clean_name);
 
-    let client = reqwest::Client::new();
-    let url = format!("{}/api/books/{}/download", server_url.trim_end_matches('/'), book_id);
+    let root_certs = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+        .iter()
+        .filter_map(|der| reqwest::Certificate::from_der(der.as_ref()).ok());
+
+    let client = reqwest::Client::builder()
+        .tls_certs_only(root_certs)
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+
+    let url = format!(
+        "{}/api/books/{}/download",
+        server_url.trim_end_matches('/'),
+        book_id
+    );
 
     let mut request = client.get(&url);
     if let Some(t) = token {
@@ -266,7 +287,9 @@ pub async fn check_book_downloaded(
     // 1. Check in series directory if specified
     if let Some(series) = series_name {
         let clean_series = sanitize_filename_part(&series);
-        let series_file = PathBuf::from(&base_dir).join(clean_series).join(&clean_name);
+        let series_file = PathBuf::from(&base_dir)
+            .join(clean_series)
+            .join(&clean_name);
         if series_file.exists() && series_file.is_file() {
             return Ok(Some(series_file.to_string_lossy().to_string()));
         }

@@ -13,6 +13,7 @@
     "rlib",
     "serde",
     "staticlib",
-    "tauri"
+    "tauri",
+    "webpki"
   ]
 }

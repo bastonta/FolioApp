@@ -1,7 +1,11 @@
+use reqwest::{
+    Client, StatusCode,
+    cookie::Jar,
+    header::{COOKIE, SET_COOKIE},
+};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
-use reqwest::{Client, StatusCode, cookie::Jar, header::{COOKIE, SET_COOKIE}};
-use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use tokio::fs;
 use tokio::sync::Mutex;
@@ -35,8 +39,13 @@ pub struct AuthHttpClient {
 impl AuthHttpClient {
     pub fn new() -> Self {
         let jar = Arc::new(Jar::default());
+        let root_certs = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .filter_map(|der| reqwest::Certificate::from_der(der.as_ref()).ok());
+
         let client = Client::builder()
             .cookie_provider(jar.clone())
+            .tls_certs_only(root_certs)
             .build()
             .expect("failed to build reqwest client");
         Self {
@@ -96,7 +105,10 @@ fn extract_refresh_token(headers: &reqwest::header::HeaderMap) -> Option<Option<
                 let after = &val_str[pos + "refresh_token=".len()..];
                 let token_val = after.split(';').next().unwrap_or("").trim();
                 let lower = val_str.to_lowercase();
-                if token_val.is_empty() || lower.contains("max-age=0") || lower.contains("expires=thu, 01 jan 1970") {
+                if token_val.is_empty()
+                    || lower.contains("max-age=0")
+                    || lower.contains("expires=thu, 01 jan 1970")
+                {
                     return Some(None);
                 } else {
                     return Some(Some(token_val.to_string()));
@@ -165,7 +177,10 @@ pub async fn auth_login_2fa_proxy(
     state: State<'_, AuthHttpClientState>,
 ) -> Result<AuthProxyResponse, String> {
     let mut state = state.lock().await;
-    let url = format!("{}/api/identity/login-2fa", server_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/identity/login-2fa",
+        server_url.trim_end_matches('/')
+    );
 
     let body = serde_json::json!({
         "userId": user_id,
@@ -214,7 +229,10 @@ pub async fn auth_email_confirm_proxy(
     state: State<'_, AuthHttpClientState>,
 ) -> Result<AuthProxyResponse, String> {
     let mut state = state.lock().await;
-    let url = format!("{}/api/identity/email-confirm", server_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/identity/email-confirm",
+        server_url.trim_end_matches('/')
+    );
 
     let body = serde_json::json!({
         "userId": user_id,
@@ -270,7 +288,10 @@ pub async fn refresh_access_token(
         .ok_or_else(|| "No refresh token available".to_string())?
         .clone();
 
-    let url = format!("{}/api/identity/token/refresh", server_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/identity/token/refresh",
+        server_url.trim_end_matches('/')
+    );
 
     let res = state
         .client
@@ -301,7 +322,10 @@ pub async fn refresh_access_token(
             state.refresh_token = None;
             delete_persisted_refresh_token(&app).await;
         }
-        return Err(format!("Refresh failed with status {}: {}", status, err_body));
+        return Err(format!(
+            "Refresh failed with status {}: {}",
+            status, err_body
+        ));
     }
 
     let token_res: TokenRefreshResponseBody = res
@@ -324,7 +348,10 @@ pub async fn auth_revoke_token(
         state.refresh_token = load_persisted_refresh_token(&app).await;
     }
 
-    let url = format!("{}/api/identity/token/revoke", server_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/identity/token/revoke",
+        server_url.trim_end_matches('/')
+    );
 
     if let Some(ref current_token) = state.refresh_token {
         let _ = state
