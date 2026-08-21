@@ -10,6 +10,7 @@
     "rlib",
     "serde",
     "staticlib",
-    "tauri"
+    "tauri",
+    "fileprovider"
   ]
 }

@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">"folioapp"</string>
-    <string name="main_activity_title">"folioapp"</string>
+    <string name="app_name">"Folio Reader"</string>
+    <string name="main_activity_title">"Folio Reader"</string>
 </resources>
