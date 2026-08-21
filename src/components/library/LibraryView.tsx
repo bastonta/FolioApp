@@ -79,6 +79,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     try {
       const files = await fileManager.scanLocalBooks(settings.downloadPath);
       setLocalBooks(files);
+      setMetaCache(loadLocalBooksCache());
     } catch (err) {
       console.error('Failed to scan local books:', err);
     } finally {
@@ -96,7 +97,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
     async function enrichLocalBooks() {
       const currentCache = loadLocalBooksCache();
-      const needsEnrich = localBooks.filter((b) => !currentCache[b.id]);
+      const needsEnrich = localBooks.filter((b) => {
+        const cached = currentCache[b.id];
+        return !cached || !cached.extracted || (cached.author === 'Unknown Author' && !cached.coverUrl);
+      });
 
       if (needsEnrich.length === 0) return;
 
@@ -104,16 +108,17 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         if (isCancelled) break;
         try {
           // Read book file bytes
-          const blob = await fileManager.readBookFile(book.filePath);
-          if (!blob) continue;
+          const file = await fileManager.readBookFile(book.filePath);
+          if (!file) continue;
 
           let title = book.fileName.replace(/\.[^/.]+$/, '');
           let author = 'Unknown Author';
-          let coverUrl: string | undefined;
+          let coverUrl: string | undefined = currentCache[book.id]?.coverUrl;
+          let extracted = false;
 
           try {
             const { makeBook } = await import('../../foliate-js/view.js');
-            const parsedBook: any = await makeBook(blob);
+            const parsedBook: any = await makeBook(file);
             if (parsedBook) {
               if (parsedBook.metadata?.title) {
                 title = formatLanguageMap(parsedBook.metadata.title) || title;
@@ -129,12 +134,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 }
               }
               parsedBook.destroy?.();
+              extracted = true;
             }
           } catch (e) {
             console.warn('Metadata extraction failed for:', book.fileName, e);
           }
 
-          const metaItem = { title, author, coverUrl };
+          const metaItem = { title, author, coverUrl, extracted };
           saveLocalBookCache(book.id, metaItem);
 
           if (!isCancelled) {

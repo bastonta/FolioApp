@@ -103,13 +103,14 @@ export const fileManager = {
   },
 
   /**
-   * Reads raw bytes of a local book file from disk and returns a Blob.
+   * Reads raw bytes of a local book file from disk and returns a File.
    */
-  readBookFile: async (filePath: string): Promise<Blob> => {
+  readBookFile: async (filePath: string): Promise<File> => {
     try {
       const bytes = await invoke<number[]>('read_book_file', { filePath });
       const uint8 = new Uint8Array(bytes);
-      return new Blob([uint8], { type: 'application/epub+zip' });
+      const fileName = filePath.split(/[\\/]/).pop() || 'book.epub';
+      return new File([uint8], fileName, { type: 'application/epub+zip' });
     } catch (err) {
       console.error(`Failed to read book file '${filePath}':`, err);
       throw err;

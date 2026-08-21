@@ -1358,18 +1358,32 @@ foliate-view::part(foot) {
 }
 
 .toggle-switch {
-  width: 36px;
-  height: 20px;
+  width: 40px;
+  min-width: 40px;
+  height: 22px;
+  min-height: 22px;
   border-radius: var(--radius-full);
   background-color: var(--bg-tertiary);
   position: relative;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
   cursor: pointer;
-  border: none;
+  border: 1px solid var(--border-color);
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .toggle-switch.checked {
   background-color: var(--accent-color);
+  border-color: var(--accent-color);
 }
 
 .toggle-thumb {
@@ -1380,12 +1394,14 @@ foliate-view::part(foot) {
   position: absolute;
   top: 2px;
   left: 2px;
-  transition: transform 0.15s ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  box-sizing: border-box;
 }
 
 .toggle-switch.checked .toggle-thumb {
-  transform: translateX(16px);
+  transform: translateX(18px);
 }
 
 @keyframes fadeIn {
@@ -1543,12 +1559,17 @@ foliate-view::part(foot) {
 
   .toggle-switch {
     width: 44px;
+    min-width: 44px;
     height: 24px;
+    min-height: 24px;
+    flex-shrink: 0;
   }
 
   .toggle-thumb {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
+    top: 2px;
+    left: 2px;
   }
 
   .toggle-switch.checked .toggle-thumb {

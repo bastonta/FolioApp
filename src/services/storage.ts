@@ -399,7 +399,14 @@ export function deleteBookmark(bookId: string, bookmarkId: string): void {
 }
 
 // Local Books Metadata Cache
-export function loadLocalBooksCache(): Record<string, { title: string; author: string; coverUrl?: string }> {
+export interface LocalBookCacheItem {
+  title: string;
+  author: string;
+  coverUrl?: string;
+  extracted?: boolean;
+}
+
+export function loadLocalBooksCache(): Record<string, LocalBookCacheItem> {
   try {
     const data = localStorage.getItem(LOCAL_CACHE_KEY);
     return data ? JSON.parse(data) : {};
@@ -410,11 +417,12 @@ export function loadLocalBooksCache(): Record<string, { title: string; author: s
 
 export function saveLocalBookCache(
   bookId: string,
-  meta: { title: string; author: string; coverUrl?: string }
+  meta: Partial<LocalBookCacheItem>
 ): void {
   try {
     const current = loadLocalBooksCache();
-    current[bookId] = { ...current[bookId], ...meta };
+    const existing = current[bookId] || { title: '', author: '' };
+    current[bookId] = { ...existing, ...meta };
     localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(current));
   } catch (err) {
     console.error('Failed to save local book cache:', err);

@@ -296,17 +296,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
+                gap: 16,
                 cursor: 'pointer',
               }}
               onClick={() => onUpdateSettings({ createSeriesFolder: !settings.createSeriesFolder })}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Layers size={18} style={{ color: 'var(--accent-color)' }} />
-                <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Layers size={18} style={{ color: 'var(--accent-color)' }} />
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
                     Automatically Create Series Folders
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.35 }}>
                     Books belonging to a series will be saved inside a subfolder named after the series
                   </div>
                 </div>

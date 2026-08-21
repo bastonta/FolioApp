@@ -29,6 +29,7 @@ import {
   storeBookCover,
   blobToThumbnailDataUrl,
   updateRecentBookMetadata,
+  saveLocalBookCache,
 } from '../../services/storage';
 
 interface FoliateReaderProps {
@@ -843,11 +844,17 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           console.warn('Cover extraction failed:', e);
         }
 
-        // Persist extracted metadata & cover thumbnail to recent books
+        // Persist extracted metadata & cover thumbnail to recent books and local cache
         if (coverBlob) {
           storeBookCover(bookId, coverBlob).catch(console.error);
           blobToThumbnailDataUrl(coverBlob)
             .then((thumbUrl) => {
+              saveLocalBookCache(bookId, {
+                title: title !== 'Untitled Book' ? title : undefined,
+                author: author !== 'Unknown Author' ? author : undefined,
+                coverUrl: thumbUrl,
+                extracted: true,
+              });
               updateRecentBookMetadata(bookId, {
                 title: title !== 'Untitled Book' ? title : undefined,
                 author: author !== 'Unknown Author' ? author : undefined,
@@ -855,12 +862,22 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               });
             })
             .catch(() => {
+              saveLocalBookCache(bookId, {
+                title: title !== 'Untitled Book' ? title : undefined,
+                author: author !== 'Unknown Author' ? author : undefined,
+                extracted: true,
+              });
               updateRecentBookMetadata(bookId, {
                 title: title !== 'Untitled Book' ? title : undefined,
                 author: author !== 'Unknown Author' ? author : undefined,
               });
             });
         } else {
+          saveLocalBookCache(bookId, {
+            title: title !== 'Untitled Book' ? title : undefined,
+            author: author !== 'Unknown Author' ? author : undefined,
+            extracted: true,
+          });
           updateRecentBookMetadata(bookId, {
             title: title !== 'Untitled Book' ? title : undefined,
             author: author !== 'Unknown Author' ? author : undefined,

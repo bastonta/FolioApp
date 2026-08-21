@@ -666,13 +666,34 @@ class Resources {
                 href: resolveHref(href),
             }))
 
-        this.cover = this.getItemByProperty('cover-image')
+        const isImage = item => item?.mediaType?.startsWith('image/')
+
+        let coverItem = this.getItemByProperty('cover-image')
             // EPUB 2 compat
             ?? this.getItemByID($$$(opf, 'meta')
                 .find(filterAttribute('name', 'cover'))
                 ?.getAttribute('content'))
-            ?? this.getItemByHref(this.guide
-                ?.find(ref => ref.type.includes('cover'))?.href)
+
+        if (!coverItem || !isImage(coverItem)) {
+            const guideHref = this.guide
+                ?.find(ref => ref.type?.includes('cover'))?.href
+            const guideItem = guideHref ? this.getItemByHref(guideHref) : null
+            if (guideItem && isImage(guideItem)) {
+                coverItem = guideItem
+            }
+        }
+
+        // Fallback: look for manifest item with image mediaType and id or href containing "cover"
+        if (!coverItem || !isImage(coverItem)) {
+            coverItem = this.manifest.find(item =>
+                isImage(item) && (
+                    item.id?.toLowerCase().includes('cover') ||
+                    item.href?.toLowerCase().includes('cover')
+                )
+            )
+        }
+
+        this.cover = coverItem
 
         this.cfis = CFI.fromElements($$itemref)
     }

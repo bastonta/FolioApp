@@ -17,15 +17,15 @@ const isPDF = async file => {
         && arr[4] === 0x2d
 }
 
-const isCBZ = ({ name, type }) =>
-    type === 'application/vnd.comicbook+zip' || name.endsWith('.cbz')
+const isCBZ = ({ name, type } = {}) =>
+    type === 'application/vnd.comicbook+zip' || Boolean(name?.endsWith('.cbz'))
 
-const isFB2 = ({ name, type }) =>
-    type === 'application/x-fictionbook+xml' || name.endsWith('.fb2')
+const isFB2 = ({ name, type } = {}) =>
+    type === 'application/x-fictionbook+xml' || Boolean(name?.endsWith('.fb2'))
 
-const isFBZ = ({ name, type }) =>
+const isFBZ = ({ name, type } = {}) =>
     type === 'application/x-zip-compressed-fb2'
-    || name.endsWith('.fb2.zip') || name.endsWith('.fbz')
+    || Boolean(name?.endsWith('.fb2.zip')) || Boolean(name?.endsWith('.fbz'))
 
 const makeZipLoader = async file => {
     const { configure, ZipReader, BlobReader, TextWriter, BlobWriter } =

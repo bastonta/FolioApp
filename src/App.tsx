@@ -128,21 +128,21 @@ function AppRoutes() {
   // Open a local book file in FoliateReader
   const handleOpenLocalBook = async (
     book: LocalBookFile,
-    cachedMeta?: { title?: string; author?: string; coverUrl?: string }
+    cachedMeta?: { title?: string; author?: string; coverUrl?: string; extracted?: boolean }
   ) => {
     try {
       const filePath = book.filePath;
       const fileName = book.fileName;
-      const blob = await fileManager.readBookFile(filePath);
+      const file = await fileManager.readBookFile(filePath);
 
       let title = cachedMeta?.title || fileName.replace(/\.[^/.]+$/, '');
       let author = cachedMeta?.author || 'Unknown Author';
 
-      // If not cached, extract metadata eagerly
-      if (!cachedMeta?.title) {
+      // If not cached or previously incomplete, extract metadata eagerly
+      if (!cachedMeta?.title || !cachedMeta?.extracted || (cachedMeta?.author === 'Unknown Author' && !cachedMeta?.coverUrl)) {
         try {
           const { makeBook } = await import('./foliate-js/view.js');
-          const parsedBook: any = await makeBook(blob);
+          const parsedBook: any = await makeBook(file);
           if (parsedBook) {
             if (parsedBook.metadata?.title) {
               title = formatLanguageMap(parsedBook.metadata.title) || title;
@@ -150,18 +150,15 @@ function AppRoutes() {
             if (parsedBook.metadata?.author || parsedBook.metadata?.creator) {
               author = formatContributor(parsedBook.metadata.author || parsedBook.metadata.creator) || author;
             }
+            let coverUrl: string | undefined;
             if (parsedBook.getCover) {
               const coverBlob = await Promise.resolve(parsedBook.getCover());
               if (coverBlob) {
                 await storeBookCover(book.id, coverBlob);
-                const thumbUrl = await blobToThumbnailDataUrl(coverBlob);
-                saveLocalBookCache(book.id, { title, author, coverUrl: thumbUrl });
-              } else {
-                saveLocalBookCache(book.id, { title, author });
+                coverUrl = await blobToThumbnailDataUrl(coverBlob);
               }
-            } else {
-              saveLocalBookCache(book.id, { title, author });
             }
+            saveLocalBookCache(book.id, { title, author, coverUrl, extracted: true });
             parsedBook.destroy?.();
           }
         } catch (e) {
@@ -171,7 +168,7 @@ function AppRoutes() {
 
       setActiveBook({
         id: book.id,
-        source: blob,
+        source: file,
         title,
         author,
       });
@@ -188,13 +185,13 @@ function AppRoutes() {
     author?: string
   ) => {
     try {
-      const blob = await fileManager.readBookFile(filePath);
+      const file = await fileManager.readBookFile(filePath);
       const fileName = filePath.split(/[\\/]/).pop() || 'book.epub';
       const bookId = `local-${filePath.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
       setActiveBook({
         id: bookId,
-        source: blob,
+        source: file,
         title: title || fileName.replace(/\.[^/.]+$/, ''),
         author: author || 'Unknown Author',
       });
