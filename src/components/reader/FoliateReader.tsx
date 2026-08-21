@@ -16,7 +16,7 @@ import { FootnoteModal } from './FootnoteModal';
 import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
 import { SettingsPopover } from './SettingsPopover';
 import { BookInfoModal } from './BookInfoModal';
-import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu } from '../../services/systemUi';
+import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu, isMobileDevice } from '../../services/systemUi';
 import {
   saveLastLocation,
   saveAnnotation,
@@ -368,6 +368,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       viewRef.current.renderer.setStyles?.(getReaderCSS(settings));
       viewRef.current.renderer.setAttribute?.('flow', settings.flow);
       
+      const isMobile = isMobileDevice();
+      const method = settings.pageTurnMethod || 'both';
+      const allowSwipe = isMobile && (method === 'swipe' || method === 'both');
+      viewRef.current.renderer.setAttribute?.('touch-swipe', allowSwipe ? 'true' : 'false');
+      if ('touchSwipeEnabled' in viewRef.current.renderer) {
+        viewRef.current.renderer.touchSwipeEnabled = allowSwipe;
+      }
+
       const colCount =
         settings.columns === 'auto'
           ? window.innerWidth > 1000
@@ -478,9 +486,15 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         const { doc, index } = e.detail;
 
         let selectionDismissedOnPointerDown = false;
+        let pointerStartX = 0;
+        let pointerStartY = 0;
+        let pointerMoved = false;
 
         // Pointerdown / mousedown on free space inside doc dismisses popover & selection
         doc.addEventListener('pointerdown', (ev: PointerEvent) => {
+          pointerStartX = ev.clientX;
+          pointerStartY = ev.clientY;
+          pointerMoved = false;
           dismissOriginalContextMenu();
           if (selectionRef.current) {
             const contents = view.renderer?.getContents() || [];
@@ -491,6 +505,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               setSelection(null);
               doc.defaultView?.getSelection()?.removeAllRanges();
             }
+          }
+        });
+
+        doc.addEventListener('pointermove', (ev: PointerEvent) => {
+          if (Math.hypot(ev.clientX - pointerStartX, ev.clientY - pointerStartY) > 12) {
+            pointerMoved = true;
           }
         });
 
@@ -715,9 +735,15 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           }, 20);
         });
 
-        // Click handler inside iframe: footnote opening, unpinned sidebar dismissal, and controls toggle
+        // Click handler inside iframe: footnote opening, unpinned sidebar dismissal, controls toggle & mobile tap navigation
         doc.addEventListener('click', async (ev: MouseEvent) => {
-          // 1. If selection was dismissed on pointerdown, do not toggle controls
+          // If the user was dragging/swiping or selecting text, do not treat as a tap
+          if (pointerMoved) {
+            pointerMoved = false;
+            return;
+          }
+
+          // 1. If selection was dismissed on pointerdown, do not toggle controls or turn pages
           if (selectionDismissedOnPointerDown) {
             selectionDismissedOnPointerDown = false;
             return;
@@ -760,15 +786,48 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             return;
           }
 
-          // 6. Clean click without text selection -> toggle controls
+          // 6. Clean click without text selection
           const sel = doc.defaultView?.getSelection();
           if (!sel || sel.isCollapsed || !sel.toString().trim()) {
-            setShowControls((prev) => {
-              const next = !prev;
-              if (next) scheduleAutoHideRef.current();
-              else cancelAutoHideRef.current();
-              return next;
-            });
+            const isMobile = isMobileDevice();
+            const method = settingsRef.current.pageTurnMethod || 'both';
+            const allowTapTurn = isMobile && (method === 'tap' || method === 'both');
+
+            if (allowTapTurn) {
+              if (showControlsRef.current) {
+                // If controls are visible, tapping hides controls
+                setShowControls(false);
+                cancelAutoHideRef.current();
+              } else {
+                // If controls are hidden, use 30% back / 70% forward with center/top reveal
+                const winWidth = doc.defaultView?.innerWidth || window.innerWidth;
+                const winHeight = doc.defaultView?.innerHeight || window.innerHeight;
+                const xRatio = ev.clientX / winWidth;
+                const yRatio = ev.clientY / winHeight;
+
+                const isCenterTap = xRatio >= 0.35 && xRatio <= 0.65 && yRatio >= 0.35 && yRatio <= 0.65;
+                const isTopBarTap = ev.clientY <= 60;
+
+                if (isCenterTap || isTopBarTap) {
+                  setShowControls(true);
+                  scheduleAutoHideRef.current();
+                } else if (xRatio <= 0.30) {
+                  // Left 30% goes back
+                  view.goLeft();
+                } else {
+                  // Remaining 70% goes forward
+                  view.goRight();
+                }
+              }
+            } else {
+              // Desktop or Mobile with swipe-only -> toggle controls
+              setShowControls((prev) => {
+                const next = !prev;
+                if (next) scheduleAutoHideRef.current();
+                else cancelAutoHideRef.current();
+                return next;
+              });
+            }
           }
         });
       });
@@ -1166,13 +1225,42 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         {/* Reader Canvas Area */}
         <main
           className="reader-canvas-area"
-          onClick={() => {
+          onClick={(e) => {
             dismissOriginalContextMenu();
             if (isSettingsOpen) {
               setIsSettingsOpen(false);
+              return;
             }
             if (!settings.sidebarPinned && settings.sidebarOpen) {
               onUpdateSettings({ sidebarOpen: false });
+              return;
+            }
+            // If tapped directly on outer canvas / margin area on mobile
+            if (e.target === e.currentTarget || (e.target as HTMLElement).classList?.contains('foliate-viewport-wrap')) {
+              const isMobile = isMobileDevice();
+              const method = settings.pageTurnMethod || 'both';
+              const allowTapTurn = isMobile && (method === 'tap' || method === 'both');
+              if (allowTapTurn) {
+                if (showControls) {
+                  setShowControls(false);
+                  cancelAutoHide();
+                } else {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const xRatio = (e.clientX - rect.left) / rect.width;
+                  const yRatio = (e.clientY - rect.top) / rect.height;
+                  const isCenterTap = xRatio >= 0.35 && xRatio <= 0.65 && yRatio >= 0.35 && yRatio <= 0.65;
+                  const isTopBarTap = (e.clientY - rect.top) <= 60;
+
+                  if (isCenterTap || isTopBarTap) {
+                    setShowControls(true);
+                    scheduleAutoHide();
+                  } else if (xRatio <= 0.30) {
+                    viewRef.current?.goLeft();
+                  } else {
+                    viewRef.current?.goRight();
+                  }
+                }
+              }
             }
           }}
           onContextMenu={(e) => {

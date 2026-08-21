@@ -425,7 +425,9 @@ export class Paginator extends HTMLElement {
     static observedAttributes = [
         'flow', 'gap', 'margin',
         'max-inline-size', 'max-block-size', 'max-column-count',
+        'touch-swipe',
     ]
+    touchSwipeEnabled = true
     #root = this.attachShadow({ mode: 'closed' })
     #observer = new ResizeObserver(() => this.render())
     #top
@@ -630,6 +632,9 @@ export class Paginator extends HTMLElement {
             case 'flow':
                 this.render()
                 break
+            case 'touch-swipe':
+                this.touchSwipeEnabled = value !== 'false'
+                break
             case 'gap':
             case 'margin':
             case 'max-block-size':
@@ -829,8 +834,9 @@ export class Paginator extends HTMLElement {
         }
     }
     #onTouchMove(e) {
+        if (this.touchSwipeEnabled === false) return
         const state = this.#touchState
-        if (state.pinched) return
+        if (!state || state.pinched) return
         state.pinched = globalThis.visualViewport.scale > 1
         if (this.scrolled || state.pinched) return
         if (e.touches.length > 1) {
@@ -851,6 +857,7 @@ export class Paginator extends HTMLElement {
         this.scrollBy(dx, dy)
     }
     #onTouchEnd() {
+        if (this.touchSwipeEnabled === false) return
         this.#touchScrolled = false
         if (this.scrolled) return
 
@@ -858,7 +865,7 @@ export class Paginator extends HTMLElement {
         // at this point I'm basically throwing `requestAnimationFrame` at
         // anything that doesn't work
         requestAnimationFrame(() => {
-            if (globalThis.visualViewport.scale === 1)
+            if (globalThis.visualViewport.scale === 1 && this.#touchState)
                 this.snap(this.#touchState.vx, this.#touchState.vy)
         })
     }

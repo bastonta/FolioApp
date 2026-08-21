@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   justify: true,
   hyphenate: true,
   theme: 'light',
+  pageTurnMethod: 'both',
   sidebarPinned: true,
   sidebarOpen: true,
   activeTab: 'contents',
