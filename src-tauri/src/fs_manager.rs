@@ -98,15 +98,14 @@ pub async fn scan_local_books(dir_path: String) -> Result<Vec<LocalBookFile>, St
             let path = entry.path();
             if path.is_dir() {
                 // Avoid hidden directories
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if !name.starts_with('.') {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                    && !name.starts_with('.') {
                         stack.push(path);
                     }
-                }
             } else if path.is_file() {
                 // Scan ONLY .epub files as requested
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if ext.eq_ignore_ascii_case("epub") {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str())
+                    && ext.eq_ignore_ascii_case("epub") {
                         let file_name = path
                             .file_name()
                             .and_then(|n| n.to_str())
@@ -158,13 +157,12 @@ pub async fn scan_local_books(dir_path: String) -> Result<Vec<LocalBookFile>, St
                             modified_at,
                         });
                     }
-                }
             }
         }
     }
 
     // Sort by file_name ascending
-    books.sort_by(|a, b| a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()));
+    books.sort_by_key(|a| a.file_name.to_lowercase());
 
     Ok(books)
 }
@@ -190,6 +188,7 @@ pub async fn download_book_file(
     series_name: Option<String>,
     base_dir: String,
     custom_target_dir: Option<String>,
+    db: tauri::State<'_, crate::db::DbPool>,
 ) -> Result<String, String> {
     let target_dir = if let Some(custom) = custom_target_dir {
         if !custom.trim().is_empty() {
@@ -200,7 +199,7 @@ pub async fn download_book_file(
     } else if let Some(series) = series_name {
         let mut dir = PathBuf::from(&base_dir);
         let parts: Vec<&str> = series
-            .split(|c| c == '/' || c == '\\')
+            .split(['/', '\\'])
             .filter(|p| !p.trim().is_empty())
             .collect();
         if parts.is_empty() {
@@ -247,11 +246,10 @@ pub async fn download_book_file(
     );
 
     let mut request = client.get(&url);
-    if let Some(t) = token {
-        if !t.is_empty() {
+    if let Some(t) = token
+        && !t.is_empty() {
             request = request.header("Authorization", format!("Bearer {t}"));
         }
-    }
 
     let response = request
         .send()
@@ -274,7 +272,17 @@ pub async fn download_book_file(
         .await
         .map_err(|e| format!("Failed to save book to '{:?}': {e}", final_path))?;
 
-    Ok(final_path.to_string_lossy().to_string())
+    let final_path_str = final_path.to_string_lossy().to_string();
+    let rel_path = final_path
+        .strip_prefix(Path::new(&base_dir))
+        .unwrap_or(&final_path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    let local_id = format!("local-{}", rel_path.replace(['/', '\\', ' ', '.'], "_"));
+
+    let _ = crate::db::save_book_mapping(&db, &local_id, &book_id, Some(&final_path_str)).await;
+
+    Ok(final_path_str)
 }
 
 #[tauri::command]
@@ -305,7 +313,7 @@ pub async fn check_book_downloaded(
     if let Some(series) = series_name {
         let mut series_dir = PathBuf::from(&base_dir);
         let parts: Vec<&str> = series
-            .split(|c| c == '/' || c == '\\')
+            .split(['/', '\\'])
             .filter(|p| !p.trim().is_empty())
             .collect();
         for part in parts {
@@ -335,18 +343,15 @@ pub async fn check_book_downloaded(
                 while let Ok(Some(entry)) = entries.next_entry().await {
                     let path = entry.path();
                     if path.is_dir() {
-                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                            if !name.starts_with('.') {
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                            && !name.starts_with('.') {
                                 stack.push(path);
                             }
-                        }
-                    } else if path.is_file() {
-                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                            if name.eq_ignore_ascii_case(&clean_name) {
+                    } else if path.is_file()
+                        && let Some(name) = path.file_name().and_then(|n| n.to_str())
+                            && name.eq_ignore_ascii_case(&clean_name) {
                                 return Ok(Some(path.to_string_lossy().to_string()));
                             }
-                        }
-                    }
                 }
             }
         }

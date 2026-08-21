@@ -54,6 +54,10 @@ impl AuthHttpClient {
             refresh_token: None,
         }
     }
+
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
 }
 
 pub type AuthHttpClientState = Mutex<AuthHttpClient>;
@@ -100,8 +104,8 @@ async fn delete_persisted_refresh_token(app: &AppHandle) {
 
 fn extract_refresh_token(headers: &reqwest::header::HeaderMap) -> Option<Option<String>> {
     for val in headers.get_all(SET_COOKIE) {
-        if let Ok(val_str) = val.to_str() {
-            if let Some(pos) = val_str.find("refresh_token=") {
+        if let Ok(val_str) = val.to_str()
+            && let Some(pos) = val_str.find("refresh_token=") {
                 let after = &val_str[pos + "refresh_token=".len()..];
                 let token_val = after.split(';').next().unwrap_or("").trim();
                 let lower = val_str.to_lowercase();
@@ -114,7 +118,6 @@ fn extract_refresh_token(headers: &reqwest::header::HeaderMap) -> Option<Option<
                     return Some(Some(token_val.to_string()));
                 }
             }
-        }
     }
     None
 }

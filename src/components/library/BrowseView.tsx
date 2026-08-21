@@ -26,7 +26,7 @@ import { ReaderSettings } from '../../types/reader';
 interface BrowseViewProps {
   settings: ReaderSettings;
   onBackToLocalLibrary: () => void;
-  onOpenBookFromPath?: (filePath: string, title?: string, author?: string) => void;
+  onOpenBookFromPath?: (filePath: string, title?: string, author?: string, serverBookId?: string) => void;
   onBookDownloaded?: () => void;
   onUpdateSettings?: (settings: Partial<ReaderSettings>) => void;
 }
@@ -736,7 +736,8 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                             onOpenBookFromPath(
                               downloadedPaths[item.id],
                               item.name,
-                              item.author
+                              item.author,
+                              item.id
                             )
                           }
                         >
@@ -854,7 +855,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                   style={{ cursor: isDownloaded && downloadedPaths[item.id] && onOpenBookFromPath ? 'pointer' : 'default' }}
                   onClick={() => {
                     if (isDownloaded && downloadedPaths[item.id] && onOpenBookFromPath) {
-                      onOpenBookFromPath(downloadedPaths[item.id], item.name, item.author);
+                      onOpenBookFromPath(downloadedPaths[item.id], item.name, item.author, item.id);
                     }
                   }}
                 >
@@ -960,7 +961,8 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                           onOpenBookFromPath(
                             downloadedPaths[item.id],
                             item.name,
-                            item.author
+                            item.author,
+                            item.id
                           )
                         }
                       >

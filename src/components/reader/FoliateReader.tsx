@@ -19,18 +19,22 @@ import { BookInfoModal } from './BookInfoModal';
 import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu, isMobileDevice } from '../../services/systemUi';
 import {
   saveLastLocation,
-  saveAnnotation,
-  deleteAnnotation as removeStoredAnnotation,
-  saveBookmark,
-  deleteBookmark as removeStoredBookmark,
-  loadAnnotations,
-  loadBookmarks,
-  loadLastLocation,
   storeBookCover,
   blobToThumbnailDataUrl,
   updateRecentBookMetadata,
   saveLocalBookCache,
 } from '../../services/storage';
+import {
+  loadDbLastLocation,
+  saveDbLastLocation,
+  loadDbBookmarks,
+  saveDbBookmark,
+  deleteDbBookmark,
+  loadDbAnnotations,
+  saveDbAnnotation,
+  deleteDbAnnotation,
+  syncBookData,
+} from '../../services/readerDb';
 
 interface FoliateReaderProps {
   bookId: string;
@@ -262,8 +266,17 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [sectionFractions, setSectionFractions] = useState<number[]>([]);
   const [currentCFI, setCurrentCFI] = useState<string>('');
 
-  const [annotations, setAnnotations] = useState<Annotation[]>(() => loadAnnotations(bookId));
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => loadBookmarks(bookId));
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const annotationsRef = useRef<Annotation[]>(annotations);
+  useEffect(() => {
+    annotationsRef.current = annotations;
+  }, [annotations]);
+
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const bookmarksRef = useRef<Bookmark[]>(bookmarks);
+  useEffect(() => {
+    bookmarksRef.current = bookmarks;
+  }, [bookmarks]);
 
   const [footnote, setFootnote] = useState<FootnoteData | null>(null);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
@@ -451,6 +464,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         if (detail.cfi) {
           setCurrentCFI(detail.cfi);
           saveLastLocation(bookId, detail.cfi, fraction);
+          saveDbLastLocation(bookId, detail.cfi, fraction);
         }
 
         if (detail.tocItem) {
@@ -591,7 +605,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           }
 
           if (hitAnnotationCfi) {
-            const ann = loadAnnotations(bookId).find((a) => a.value === hitAnnotationCfi);
+            const ann = annotationsRef.current.find((a) => a.value === hitAnnotationCfi);
             if (ann) {
               const offset = getViewportOffset(doc);
               const rangeRect = hitRange?.getBoundingClientRect() || {
@@ -623,7 +637,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             if (text.length > 0) {
               const range = sel.getRangeAt(0);
               const cfi = view.getCFI(index, range);
-              const existing = loadAnnotations(bookId).find((a) => a.value === cfi);
+              const existing = annotationsRef.current.find((a) => a.value === cfi);
               const rangeRect = range.getBoundingClientRect();
               const offset = getViewportOffset(doc);
               setSelection({
@@ -681,7 +695,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
                 selObj?.addRange(wordRange);
 
                 const cfi = view.getCFI(index, wordRange);
-                const existing = loadAnnotations(bookId).find((a) => a.value === cfi);
+                const existing = annotationsRef.current.find((a) => a.value === cfi);
                 const rangeRect = wordRange.getBoundingClientRect();
                 const offsetPos = getViewportOffset(doc);
 
@@ -718,7 +732,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
                 const cfi = view.getCFI(index, range);
                 const rangeRect = range.getBoundingClientRect();
                 const offset = getViewportOffset(doc);
-                const existing = loadAnnotations(bookId).find((a) => a.value === cfi);
+                const existing = annotationsRef.current.find((a) => a.value === cfi);
 
                 setSelection({
                   text,
@@ -849,7 +863,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
       // Overlay & Annotation rendering
       view.addEventListener('create-overlay', () => {
-        const currentAnns = loadAnnotations(bookId);
+        const currentAnns = annotationsRef.current;
         for (const ann of currentAnns) {
           view.addAnnotation(ann);
         }
@@ -863,7 +877,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
       view.addEventListener('show-annotation', (e: any) => {
         const cfi = e.detail.value;
-        const ann = loadAnnotations(bookId).find((a) => a.value === cfi);
+        const ann = annotationsRef.current.find((a) => a.value === cfi);
         if (ann) {
           const contents = view.renderer?.getContents() || [];
           const contentItem = contents.find((c: any) => c.index === e.detail.index);
@@ -981,7 +995,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         applyStyles();
 
         // Restore saved location or text start
-        const savedLoc = loadLastLocation(bookId);
+        const savedLoc = await loadDbLastLocation(bookId);
         if (savedLoc?.cfi) {
           await view.goTo(savedLoc.cfi);
         } else if (savedLoc?.fraction != null) {
@@ -989,6 +1003,41 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         } else {
           await view.init({ showTextStart: true });
         }
+
+        // Load annotations & bookmarks from SQLite
+        const [loadedAnns, loadedBms] = await Promise.all([
+          loadDbAnnotations(bookId),
+          loadDbBookmarks(bookId),
+        ]);
+        setAnnotations(loadedAnns);
+        setBookmarks(loadedBms);
+        if (viewRef.current) {
+          for (const ann of loadedAnns) {
+            viewRef.current.addAnnotation(ann);
+          }
+        }
+
+        // Trigger background sync with server
+        syncBookData(bookId)
+          .then(async (res) => {
+            if (
+              res &&
+              (res.bookmarksSynced > 0 || res.annotationsSynced > 0 || res.progressSynced)
+            ) {
+              const [syncedAnns, syncedBms] = await Promise.all([
+                loadDbAnnotations(bookId),
+                loadDbBookmarks(bookId),
+              ]);
+              setAnnotations(syncedAnns);
+              setBookmarks(syncedBms);
+              if (viewRef.current) {
+                for (const ann of syncedAnns) {
+                  viewRef.current.addAnnotation(ann);
+                }
+              }
+            }
+          })
+          .catch(console.warn);
 
         setSectionFractions(view.getSectionFractions() || []);
       } catch (err) {
@@ -1003,6 +1052,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       if (viewRef.current) {
         viewRef.current.close?.();
       }
+      syncBookData(bookId).catch(console.warn);
     };
   }, [bookId, bookSource]);
 
@@ -1087,7 +1137,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   };
 
   // Annotations management
-  const handleSaveAnnotation = (data: {
+  const handleSaveAnnotation = async (data: {
     value: string;
     text: string;
     color: string;
@@ -1108,19 +1158,23 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       sectionIndex: data.sectionIndex,
     };
 
-    saveAnnotation(newAnn);
-    setAnnotations(loadAnnotations(bookId));
+    await saveDbAnnotation(newAnn);
+    const updated = await loadDbAnnotations(bookId);
+    setAnnotations(updated);
     viewRef.current?.addAnnotation(newAnn);
     clearAllSelections();
     setSelection(null);
+    syncBookData(bookId).catch(console.warn);
   };
 
-  const handleDeleteAnnotation = (value: string) => {
-    removeStoredAnnotation(bookId, value);
-    setAnnotations(loadAnnotations(bookId));
+  const handleDeleteAnnotation = async (value: string) => {
+    await deleteDbAnnotation(bookId, value);
+    const updated = await loadDbAnnotations(bookId);
+    setAnnotations(updated);
     viewRef.current?.deleteAnnotation({ value });
     clearAllSelections();
     setSelection(null);
+    syncBookData(bookId).catch(console.warn);
   };
 
   const handleSelectAnnotation = (ann: Annotation) => {
@@ -1131,7 +1185,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   };
 
   // Bookmarks management
-  const handleAddCurrentBookmark = () => {
+  const handleAddCurrentBookmark = async () => {
     if (!currentCFI) return;
     const newBm: Bookmark = {
       id: `bm-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -1142,13 +1196,17 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       chapterTitle,
       createdAt: new Date().toISOString(),
     };
-    saveBookmark(newBm);
-    setBookmarks(loadBookmarks(bookId));
+    await saveDbBookmark(newBm);
+    const updated = await loadDbBookmarks(bookId);
+    setBookmarks(updated);
+    syncBookData(bookId).catch(console.warn);
   };
 
-  const handleDeleteBookmark = (id: string) => {
-    removeStoredBookmark(bookId, id);
-    setBookmarks(loadBookmarks(bookId));
+  const handleDeleteBookmark = async (id: string) => {
+    await deleteDbBookmark(bookId, id);
+    const updated = await loadDbBookmarks(bookId);
+    setBookmarks(updated);
+    syncBookData(bookId).catch(console.warn);
   };
 
   const handleSelectBookmark = (bm: Bookmark) => {

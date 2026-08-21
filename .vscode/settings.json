@@ -12,6 +12,7 @@
     "reqwest",
     "rlib",
     "serde",
+    "sqlx",
     "staticlib",
     "tauri",
     "webpki"

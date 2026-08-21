@@ -166,6 +166,10 @@ function AppRoutes() {
         }
       }
 
+      import('./services/readerDb').then(({ saveDbBookMapping }) => {
+        saveDbBookMapping(book.id, '', filePath).catch(console.warn);
+      });
+
       setActiveBook({
         id: book.id,
         source: file,
@@ -182,12 +186,19 @@ function AppRoutes() {
   const handleOpenBookFromPath = async (
     filePath: string,
     title?: string,
-    author?: string
+    author?: string,
+    serverBookId?: string
   ) => {
     try {
       const file = await fileManager.readBookFile(filePath);
       const fileName = filePath.split(/[\\/]/).pop() || 'book.epub';
       const bookId = `local-${filePath.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+      if (serverBookId) {
+        import('./services/readerDb').then(({ saveDbBookMapping }) => {
+          saveDbBookMapping(bookId, serverBookId, filePath).catch(console.warn);
+        });
+      }
 
       setActiveBook({
         id: bookId,
