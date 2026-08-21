@@ -98,7 +98,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       }
     } catch (err: any) {
       console.error('Failed to browse library:', err);
-      setError(err?.message || 'Не удалось загрузить каталог с сервера');
+      setError(err?.message || 'Failed to load catalog from server');
     } finally {
       setIsLoading(false);
     }
@@ -142,7 +142,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   // Download book handler
   const handleDownloadBook = async (book: BrowseItem) => {
     if (!settings.downloadPath) {
-      alert('Пожалуйста, сначала укажите папку скачивания в настройках');
+      alert('Please configure a download folder in Settings first');
       return;
     }
 
@@ -150,7 +150,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     try {
       const serverUrl = getServerUrl();
       if (!serverUrl) {
-        throw new Error('Адрес сервера не настроен');
+        throw new Error('Server URL is not configured');
       }
       const token = getAccessToken() || undefined;
       const seriesName = settings.createSeriesFolder !== false ? currentSeries?.name : undefined;
@@ -171,7 +171,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     } catch (err: any) {
       console.error('Download error:', err);
       setDownloadStates((prev) => ({ ...prev, [book.id]: 'error' }));
-      alert(`Ошибка при скачивании книги: ${err?.message || err}`);
+      alert(`Failed to download book: ${err?.message || err}`);
     }
   };
 
@@ -181,21 +181,23 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     <div className="library-view-container" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
       <header className="library-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
           <button
             type="button"
             className="header-pill-btn"
             onClick={onBackToLocalLibrary}
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
           >
             <ArrowLeft size={16} />
-            <span>Мои книги</span>
+            <span>My Books</span>
           </button>
 
-          <div className="library-brand">
+          <div className="library-brand" style={{ minWidth: 0 }}>
             <div>
-              <h1 className="library-title" style={{ fontSize: 18 }}>Каталог Folio</h1>
-              <p className="library-subtitle">Онлайн библиотека сервера</p>
+              <h1 className="library-title" style={{ fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Folio Catalog
+              </h1>
+              <p className="library-subtitle">Online Library</p>
             </div>
           </div>
         </div>
@@ -204,10 +206,10 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           type="button"
           className="header-icon-btn"
           onClick={fetchBrowseItems}
-          title="Обновить"
-          style={{ width: 36, height: 36 }}
+          title="Refresh"
+          style={{ flexShrink: 0 }}
         >
-          <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+          <RefreshCw size={17} className={isLoading ? 'animate-spin' : ''} />
         </button>
       </header>
 
@@ -243,7 +245,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               }}
             >
               <Home size={15} />
-              <span>Главный каталог</span>
+              <span>Main Catalog</span>
             </button>
 
             {currentSeriesPath.map((folder, idx) => {
@@ -291,7 +293,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                 type="text"
                 value={searchInput}
                 onChange={handleSearchInputChange}
-                placeholder="Поиск книг или серий..."
+                placeholder="Search books or series..."
                 className="auth-input"
                 style={{ paddingLeft: 36, height: 38, fontSize: 13 }}
               />
@@ -331,10 +333,10 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                     width: '100%',
                   }}
                 >
-                  <option value="all">Все поля</option>
-                  <option value="title">По названию</option>
-                  <option value="author">По автору</option>
-                  <option value="series">По серии</option>
+                  <option value="all">All Fields</option>
+                  <option value="title">By Title</option>
+                  <option value="author">By Author</option>
+                  <option value="series">By Series</option>
                 </select>
               </div>
 
@@ -371,9 +373,9 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                     width: '100%',
                   }}
                 >
-                  <option value="name">По имени</option>
-                  <option value="recent">Сначала новые</option>
-                  <option value="sortOrder">По серии</option>
+                  <option value="name">By Name</option>
+                  <option value="recent">Newest First</option>
+                  <option value="sortOrder">By Series Order</option>
                 </select>
               </div>
             </div>
@@ -384,13 +386,13 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         {isLoading ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 12 }}>
             <Loader2 size={32} className="animate-spin" style={{ color: 'var(--accent-color)' }} />
-            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Загрузка каталога с сервера...</p>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading catalog from server...</p>
           </div>
         ) : error ? (
           <div className="library-empty-box" style={{ borderColor: 'var(--danger-color)' }}>
             <p style={{ color: 'var(--danger-color)', fontWeight: 600 }}>{error}</p>
             <button type="button" className="auth-btn-primary" onClick={fetchBrowseItems} style={{ marginTop: 8 }}>
-              Попробовать снова
+              Try Again
             </button>
           </div>
         ) : items.length === 0 ? (
@@ -398,10 +400,10 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
             <Sparkles size={32} className="empty-box-icon" />
             <p>
               {search
-                ? 'По вашему запросу ничего не найдено.'
+                ? 'No items found matching your query.'
                 : currentSeriesPath.length > 0
-                ? 'В этой серии пока нет книг.'
-                : 'Каталог на сервере пуст.'}
+                ? 'No books in this series yet.'
+                : 'Catalog on server is empty.'}
             </p>
           </div>
         ) : (
@@ -452,7 +454,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                           textTransform: 'uppercase',
                         }}
                       >
-                        Серия книг
+                        Book Series
                       </span>
                     </div>
 
@@ -461,7 +463,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                         {item.name}
                       </h4>
                       <p className="book-card-author" style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#a855f7' }}>
-                        <span>Открыть папку</span>
+                        <span>Open folder</span>
                         <ChevronRight size={12} />
                       </p>
                     </div>
@@ -535,7 +537,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                         }}
                       >
                         <Check size={11} />
-                        <span>Скачано</span>
+                        <span>Downloaded</span>
                       </span>
                     )}
 
@@ -567,7 +569,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                       {item.name}
                     </h4>
                     <p className="book-card-author" title={item.author}>
-                      {item.author || 'Неизвестный автор'}
+                      {item.author || 'Unknown Author'}
                     </p>
 
                     <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
@@ -593,7 +595,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                           }
                         >
                           <BookOpen size={13} />
-                          <span>Читать</span>
+                          <span>Read</span>
                         </button>
                       ) : (
                         <button
@@ -614,17 +616,17 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                           {isDownloading ? (
                             <>
                               <Loader2 size={13} className="animate-spin" />
-                              <span>Скачивание...</span>
+                              <span>Downloading...</span>
                             </>
                           ) : isDownloaded ? (
                             <>
                               <CheckCircle2 size={13} style={{ color: '#22c55e' }} />
-                              <span>Скачать заново</span>
+                              <span>Re-download</span>
                             </>
                           ) : (
                             <>
                               <Download size={13} />
-                              <span>Скачать</span>
+                              <span>Download</span>
                             </>
                           )}
                         </button>
@@ -650,7 +652,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
             }}
           >
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Страница {page} из {totalPages} ({totalItems} всего)
+              Page {page} of {totalPages} ({totalItems} total)
             </span>
             <div style={{ display: 'flex', gap: 8 }}>
               <button
@@ -660,7 +662,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                 disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
               >
-                Назад
+                Previous
               </button>
               <button
                 type="button"
@@ -669,7 +671,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                 disabled={page >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
               >
-                Вперед
+                Next
               </button>
             </div>
           </div>

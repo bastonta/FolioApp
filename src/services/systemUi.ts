@@ -186,6 +186,16 @@ export function setStatusBarTheme(theme: ThemeName | string): void {
     metaColorScheme.content = themeInfo.isDarkIcons ? 'light' : 'dark';
 
     document.documentElement.style.colorScheme = themeInfo.isDarkIcons ? 'light' : 'dark';
+
+    // 3. Apply theme class to documentElement and body so all CSS variables cascade instantly
+    const themeClasses = ['theme-light', 'theme-sepia', 'theme-solarized', 'theme-gray', 'theme-dark'];
+    themeClasses.forEach((cls) => {
+      document.documentElement.classList.remove(cls);
+      document.body.classList.remove(cls);
+    });
+    const currentCls = `theme-${theme.toLowerCase()}`;
+    document.documentElement.classList.add(currentCls);
+    document.body.classList.add(currentCls);
   } catch (e) {
     console.warn('DOM theme meta update error:', e);
   }

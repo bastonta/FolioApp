@@ -1,13 +1,19 @@
 package com.folio.folioapp
 
+import android.Manifest
 import android.app.SearchManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.DocumentsContract
+import android.provider.Settings
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
@@ -15,15 +21,24 @@ import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import java.io.File
 
 class MainActivity : TauriActivity() {
   private var disableSystemActionMode = false
   private var isShowingExplicitActionMode = false
   private var currentExplicitActionMode: ActionMode? = null
+  private var mainWebView: WebView? = null
+
+  companion object {
+    private const val FOLDER_PICKER_REQUEST_CODE = 9901
+    private const val STORAGE_PERMISSION_REQUEST_CODE = 9902
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
@@ -104,6 +119,7 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onWebViewCreate(webView: WebView) {
+    mainWebView = webView
     super.onWebViewCreate(webView)
 
     // Propagate system bar insets (status bar, navigation bar) directly to CSS variables
@@ -296,6 +312,131 @@ class MainActivity : TauriActivity() {
           insetsController.isAppearanceLightNavigationBars = isDarkIcons
         }
       }
+
+      @JavascriptInterface
+      fun hasStoragePermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+          Environment.isExternalStorageManager()
+        } else {
+          ContextCompat.checkSelfPermission(
+            this@MainActivity,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+          ) == PackageManager.PERMISSION_GRANTED
+        }
+      }
+
+      @JavascriptInterface
+      fun requestStoragePermission() {
+        runOnUiThread {
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+              try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                  data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+              } catch (e: Exception) {
+                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                startActivity(intent)
+              }
+            }
+          } else {
+            ActivityCompat.requestPermissions(
+              this@MainActivity,
+              arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+              ),
+              STORAGE_PERMISSION_REQUEST_CODE
+            )
+          }
+        }
+      }
+
+      @JavascriptInterface
+      fun openFolderPicker() {
+        runOnUiThread {
+          try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+              addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+              )
+            }
+            startActivityForResult(intent, FOLDER_PICKER_REQUEST_CODE)
+          } catch (e: Exception) {
+            e.printStackTrace()
+          }
+        }
+      }
+
+      @JavascriptInterface
+      fun getDefaultDownloadDir(): String {
+        return try {
+          val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+          val folioDir = File(downloadsDir, "FolioBooks")
+          if (!folioDir.exists()) {
+            folioDir.mkdirs()
+          }
+          folioDir.absolutePath
+        } catch (e: Exception) {
+          "/storage/emulated/0/Download/FolioBooks"
+        }
+      }
     }, "AndroidBridge")
+  }
+
+  @Deprecated("Deprecated in Java")
+  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    super.onActivityResult(requestCode, resultCode, data)
+    if (requestCode == FOLDER_PICKER_REQUEST_CODE && resultCode == RESULT_OK) {
+      val uri = data?.data ?: return
+      val takeFlags = (data.flags
+        and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
+      try {
+        contentResolver.takePersistableUriPermission(uri, takeFlags)
+      } catch (_: Exception) {}
+
+      val path = getPathFromTreeUri(uri)
+      if (path != null) {
+        val escapedPath = path.replace("\\", "\\\\").replace("'", "\\'")
+        mainWebView?.post {
+          mainWebView?.evaluateJavascript(
+            "if (typeof window.onAndroidFolderSelected === 'function') { window.onAndroidFolderSelected('$escapedPath'); }",
+            null
+          )
+        }
+      }
+    }
+  }
+
+  private fun getPathFromTreeUri(uri: Uri): String? {
+    val docId = try {
+      DocumentsContract.getTreeDocumentId(uri)
+    } catch (_: Exception) {
+      uri.lastPathSegment
+    } ?: return null
+
+    val split = docId.split(":")
+    if (split.isEmpty()) return null
+    val type = split[0]
+    val relativePath = if (split.size > 1) split[1] else ""
+
+    return if ("primary".equals(type, ignoreCase = true)) {
+      val extDir = Environment.getExternalStorageDirectory()?.absolutePath ?: "/storage/emulated/0"
+      if (relativePath.isNotEmpty()) {
+        "$extDir/$relativePath"
+      } else {
+        extDir
+      }
+    } else {
+      if (relativePath.isNotEmpty()) {
+        "/storage/$type/$relativePath"
+      } else {
+        "/storage/$type"
+      }
+    }
   }
 }

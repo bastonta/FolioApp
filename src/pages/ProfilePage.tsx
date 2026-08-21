@@ -6,12 +6,8 @@ import QRCode from 'qrcode';
 import {
   ArrowLeft, ShieldCheck, ShieldAlert, Copy, Download,
   KeyRound, AlertCircle, CheckCircle2, X, Mail, Server,
-  LogOut, Pencil, Palette, FolderOpen, RotateCcw,
-  Check
+  LogOut, Pencil
 } from 'lucide-react';
-import { loadSettings, saveSettings } from '../services/storage';
-import { fileManager } from '../services/fileManager';
-import { ReaderSettings, ThemeName } from '../types/reader';
 
 export const ProfilePage: React.FC = () => {
   const { user, serverUrl, clearServer, logout, refreshUser } = useAuth();
@@ -33,34 +29,6 @@ export const ProfilePage: React.FC = () => {
   const [showEmailChange, setShowEmailChange] = useState(false);
   const [emailData, setEmailData] = useState({ newEmail: '', currentPassword: '', code: '' });
   const [emailChangeStep, setEmailChangeStep] = useState<1 | 2>(1);
-
-  // App Settings (Theme & Download Path)
-  const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
-  const [isPickingFolder, setIsPickingFolder] = useState(false);
-
-  const handleUpdateSettings = (newSettings: Partial<ReaderSettings>) => {
-    const updated = saveSettings(newSettings);
-    setSettings(updated);
-  };
-
-  const handlePickFolder = async () => {
-    setIsPickingFolder(true);
-    try {
-      const selected = await fileManager.pickFolder(settings.downloadPath);
-      if (selected) {
-        handleUpdateSettings({ downloadPath: selected });
-      }
-    } finally {
-      setIsPickingFolder(false);
-    }
-  };
-
-  const handleResetFolder = async () => {
-    const defaultDir = await fileManager.getDefaultDownloadDir();
-    if (defaultDir) {
-      handleUpdateSettings({ downloadPath: defaultDir });
-    }
-  };
 
   // 2FA Modals
   const [showEnable2FA, setShowEnable2FA] = useState(false);
@@ -376,138 +344,6 @@ export const ProfilePage: React.FC = () => {
                 <button className="auth-btn-text" style={{ color: '#ef4444' }} onClick={() => { clearMessages(); setShowDisable2FA(true); }}>Disable 2FA</button>
               </div>
             )}
-          </div>
-        </div>
-
-        {/* App Settings & Storage */}
-        <div className="profile-card" style={{ marginBottom: 24 }}>
-          <div className="profile-card-title">
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Palette size={18} /> Настройки приложения и хранения
-            </span>
-          </div>
-          <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* Theme */}
-            <div>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
-                Тема оформления
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 8 }}>
-                {[
-                  { id: 'light' as ThemeName, label: 'Light', bg: '#ffffff', color: '#2e3436', border: '#deddda' },
-                  { id: 'sepia' as ThemeName, label: 'Sepia', bg: '#fbf0d9', color: '#5f4b32', border: '#ebd5ab' },
-                  { id: 'solarized' as ThemeName, label: 'Solarized', bg: '#fdf6e3', color: '#657b83', border: '#eee8d5' },
-                  { id: 'gray' as ThemeName, label: 'Gray', bg: '#2e3440', color: '#eceff4', border: '#4c566a' },
-                  { id: 'dark' as ThemeName, label: 'Dark', bg: '#1e1e1e', color: '#dedede', border: '#444444' },
-                ].map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    className={`theme-pill ${settings.theme === t.id ? 'active' : ''}`}
-                    style={{
-                      backgroundColor: t.bg,
-                      color: t.color,
-                      borderColor: t.border,
-                      padding: '8px',
-                      borderRadius: 8,
-                      border: '1px solid',
-                      fontSize: 12,
-                      fontWeight: settings.theme === t.id ? 700 : 500,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                    }}
-                    onClick={() => handleUpdateSettings({ theme: t.id })}
-                  >
-                    <span>{t.label}</span>
-                    {settings.theme === t.id && <Check size={13} />}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Download Folder */}
-            <div>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-                Папка скачивания и локальных книг
-              </label>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '10px 14px',
-                  backgroundColor: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 8,
-                  marginBottom: 10,
-                  wordBreak: 'break-all',
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  color: 'var(--text-primary)',
-                }}
-              >
-                <FolderOpen size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                <span>{settings.downloadPath || 'Папка не выбрана'}</span>
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button
-                  type="button"
-                  className="auth-btn-primary"
-                  style={{ padding: '6px 14px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  onClick={handlePickFolder}
-                  disabled={isPickingFolder}
-                >
-                  <FolderOpen size={14} />
-                  <span>{isPickingFolder ? 'Выбор...' : 'Выбрать папку'}</span>
-                </button>
-                <button
-                  type="button"
-                  className="auth-btn-secondary"
-                  style={{ padding: '6px 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  onClick={handleResetFolder}
-                >
-                  <RotateCcw size={13} />
-                  <span>По умолчанию</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Series Subfolders Toggle */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                cursor: 'pointer',
-                borderTop: '1px solid var(--border-subtle)',
-                paddingTop: 12,
-              }}
-              onClick={() => handleUpdateSettings({ createSeriesFolder: !settings.createSeriesFolder })}
-            >
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                  Автоматически создавать папки серий
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  Книги из серий сохраняются в подпапки с названием серии
-                </div>
-              </div>
-              <button
-                type="button"
-                className={`toggle-switch ${settings.createSeriesFolder !== false ? 'checked' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleUpdateSettings({ createSeriesFolder: !settings.createSeriesFolder });
-                }}
-                role="switch"
-                aria-checked={settings.createSeriesFolder !== false}
-              >
-                <span className="toggle-thumb" />
-              </button>
-            </div>
           </div>
         </div>
 

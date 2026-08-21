@@ -1658,15 +1658,16 @@ foliate-view::part(foot) {
   display: flex;
   flex-direction: column;
   background-color: var(--bg-secondary);
-  overflow-y: auto;
+  overflow-x: hidden;
+  overflow-y: hidden;
 }
 
 .library-header {
   min-height: calc(64px + var(--sat));
   padding-top: var(--sat);
   padding-bottom: 0px;
-  padding-left: calc(24px + var(--sal));
-  padding-right: calc(24px + var(--sar));
+  padding-left: calc(20px + var(--sal));
+  padding-right: calc(20px + var(--sar));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1674,12 +1675,18 @@ foliate-view::part(foot) {
   background-color: var(--bg-primary);
   box-sizing: border-box;
   flex-shrink: 0;
+  width: 100%;
+  max-width: 100vw;
+  gap: 12px;
+  overflow: hidden;
 }
 
 .library-brand {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .library-logo-icon {
@@ -1691,6 +1698,7 @@ foliate-view::part(foot) {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .library-title {
@@ -1704,6 +1712,13 @@ foliate-view::part(foot) {
   color: var(--text-muted);
 }
 
+.library-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .library-open-btn {
   padding: 8px 16px;
   background-color: var(--accent-color);
@@ -1713,6 +1728,8 @@ foliate-view::part(foot) {
   font-weight: 600;
   gap: 8px;
   box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .library-open-btn:hover {
@@ -1729,6 +1746,8 @@ foliate-view::part(foot) {
   flex-direction: column;
   gap: 28px;
   box-sizing: border-box;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .library-dropzone {
@@ -1799,6 +1818,23 @@ foliate-view::part(foot) {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.library-empty-box p {
+  max-width: 100%;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.library-empty-box code {
+  max-width: 100%;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  display: inline-block;
 }
 
 .empty-box-icon {
@@ -1972,6 +2008,7 @@ foliate-view::part(foot) {
 
 .modal-container {
   width: 100%;
+  max-width: 520px;
   background-color: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -1980,6 +2017,17 @@ foliate-view::part(foot) {
   flex-direction: column;
   overflow: hidden;
   max-height: 90vh;
+}
+
+.modal-drag-handle {
+  display: none;
+}
+
+.modal-header-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
 }
 
 .modal-header {
@@ -2028,9 +2076,15 @@ foliate-view::part(foot) {
 @media (max-width: 640px) {
   .library-header {
     min-height: calc(52px + var(--sat));
-    padding-left: calc(12px + var(--sal));
-    padding-right: calc(12px + var(--sar));
+    padding-left: calc(10px + var(--sal));
+    padding-right: calc(10px + var(--sar));
+    gap: 6px;
+  }
+
+  .library-brand {
     gap: 8px;
+    min-width: 0;
+    flex-shrink: 1;
   }
 
   .library-logo-icon {
@@ -2045,16 +2099,39 @@ foliate-view::part(foot) {
 
   .library-title {
     font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .library-subtitle {
     display: none;
   }
 
+  .library-header-actions {
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
   .library-open-btn {
     padding: 6px 10px;
     font-size: 12px;
     gap: 4px;
+    height: 34px;
+  }
+
+  .header-icon-btn {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+  }
+
+  .header-pill-btn {
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+    gap: 4px;
+    flex-shrink: 0;
   }
 
   .library-main-content {
@@ -2094,29 +2171,106 @@ foliate-view::part(foot) {
   }
 
   .modal-backdrop {
-    padding: calc(10px + var(--sat)) calc(10px + var(--sar)) calc(10px + var(--sab)) calc(10px + var(--sal));
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0;
     align-items: flex-end;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 1100;
+    animation: fadeIn 0.15s ease-out;
   }
 
   .modal-container {
-    border-radius: 16px 16px 0 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 20px 20px 0 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
+    border-top: 1px solid var(--border-color) !important;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.25) !important;
     max-height: 85vh;
+    animation: slideUpBottom 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    padding-bottom: var(--sab);
+  }
+
+  .modal-drag-handle {
+    display: block;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background-color: var(--border-color);
+    margin: 0 auto 8px auto;
   }
 
   .modal-header {
-    padding: 12px 14px;
+    padding: 10px 18px 12px 18px;
+    flex-direction: column;
+    align-items: center;
   }
 
   .modal-body {
-    padding: 14px;
+    padding: 16px 18px 24px 18px;
   }
 
   .modal-footer {
-    padding: 10px 14px;
+    padding: 12px 18px calc(14px + var(--sab)) 18px;
   }
 }
 
-@media (max-width: 380px) {
+@media (max-width: 420px) {
+  .library-header {
+    padding-left: calc(8px + var(--sal));
+    padding-right: calc(8px + var(--sar));
+    gap: 4px;
+  }
+
+  .library-brand {
+    gap: 6px;
+  }
+
+  .library-logo-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .library-logo-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .library-title {
+    font-size: 14px;
+  }
+
+  .library-open-btn {
+    padding: 6px 8px;
+    font-size: 11px;
+    height: 32px;
+  }
+
+  .header-icon-btn {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (max-width: 360px) {
+  .library-open-btn-text {
+    display: none;
+  }
+
+  .library-open-btn {
+    padding: 6px 8px;
+  }
+
   .books-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;

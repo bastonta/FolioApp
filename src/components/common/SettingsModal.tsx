@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ReaderSettings, ThemeName } from '../../types/reader';
 import { fileManager } from '../../services/fileManager';
+import { isMobileDevice } from '../../services/systemUi';
 import {
   X,
   Folder,
@@ -9,6 +10,8 @@ import {
   RotateCcw,
   Layers,
   Check,
+  ShieldAlert,
+  HardDrive,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -25,6 +28,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateSettings,
 }) => {
   const [isPicking, setIsPicking] = useState(false);
+  const [hasPermission, setHasPermission] = useState(true);
+  const isMobile = isMobileDevice();
+
+  useEffect(() => {
+    if (isOpen) {
+      fileManager.hasStoragePermission().then(setHasPermission);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -35,6 +46,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     { id: 'gray', label: 'Gray', bg: '#2e3440', color: '#eceff4', border: '#4c566a' },
     { id: 'dark', label: 'Dark', bg: '#1e1e1e', color: '#dedede', border: '#444444' },
   ];
+
+  const androidPresets = [
+    { label: 'Download / FolioBooks', path: '/storage/emulated/0/Download/FolioBooks' },
+    { label: 'Documents / FolioBooks', path: '/storage/emulated/0/Documents/FolioBooks' },
+    { label: 'Books / Folio', path: '/storage/emulated/0/Books/Folio' },
+  ];
+
+  const handleRequestPermission = async () => {
+    await fileManager.requestStoragePermission();
+    setTimeout(async () => {
+      const granted = await fileManager.hasStoragePermission();
+      setHasPermission(granted);
+    }, 1000);
+  };
 
   const handlePickFolder = async () => {
     setIsPicking(true);
@@ -59,19 +84,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal-container"
-        style={{ maxWidth: 520, width: '90%' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="modal-title">Настройки приложения</span>
+          <div className="modal-drag-handle" />
+          <div className="modal-header-title-row">
+            <span className="modal-title">App Settings</span>
+            <button className="modal-close-btn" onClick={onClose} aria-label="Close">
+              <X size={18} />
+            </button>
           </div>
-          <button className="modal-close-btn" onClick={onClose} aria-label="Закрыть">
-            <X size={18} />
-          </button>
         </div>
 
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '20px 24px' }}>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           
           {/* Theme Settings */}
           <div className="settings-block">
@@ -87,43 +112,84 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }}
             >
               <Palette size={18} style={{ color: 'var(--accent-color)' }} />
-              <span>Тема оформления</span>
+              <span>Theme</span>
             </label>
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
                 gap: 8,
               }}
             >
-              {themes.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  className={`theme-pill ${settings.theme === t.id ? 'active' : ''}`}
-                  style={{
-                    backgroundColor: t.bg,
-                    color: t.color,
-                    borderColor: t.border,
-                    padding: '10px 8px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid',
-                    fontSize: 12,
-                    fontWeight: settings.theme === t.id ? 700 : 500,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: 4,
-                  }}
-                  onClick={() => onUpdateSettings({ theme: t.id })}
-                >
-                  <span>{t.label}</span>
-                  {settings.theme === t.id && <Check size={14} style={{ color: 'var(--accent-color)' }} />}
-                </button>
-              ))}
+              {themes.map((t) => {
+                const isActive = settings.theme === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`theme-pill ${isActive ? 'active' : ''}`}
+                    style={{
+                      backgroundColor: t.bg,
+                      color: t.color,
+                      borderColor: isActive ? 'var(--accent-color)' : t.border,
+                      borderWidth: isActive ? 2 : 1,
+                      borderStyle: 'solid',
+                      padding: '0 12px',
+                      borderRadius: 'var(--radius-md)',
+                      fontSize: 13,
+                      fontWeight: isActive ? 700 : 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: 42,
+                      boxSizing: 'border-box',
+                      gap: 8,
+                    }}
+                    onClick={() => onUpdateSettings({ theme: t.id })}
+                  >
+                    <span>{t.label}</span>
+                    {isActive && <Check size={16} style={{ color: 'var(--accent-color)', flexShrink: 0 }} />}
+                  </button>
+                );
+              })}
             </div>
           </div>
+
+          {/* Permission warning banner for Android */}
+          {isMobile && !hasPermission && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12,
+                padding: '12px 14px',
+                backgroundColor: 'rgba(234, 179, 8, 0.12)',
+                border: '1px solid rgba(234, 179, 8, 0.35)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              <ShieldAlert size={20} style={{ color: '#eab308', flexShrink: 0, marginTop: 2 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#ca8a04' }}>
+                  Storage Access Required
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, marginBottom: 8 }}>
+                  To download, save, and scan local books on Android, storage permission is required.
+                </div>
+                <button
+                  type="button"
+                  className="auth-btn-primary"
+                  style={{ padding: '6px 12px', fontSize: 12 }}
+                  onClick={handleRequestPermission}
+                >
+                  Grant Permission
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Download Folder Settings */}
           <div className="settings-block">
@@ -139,10 +205,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }}
             >
               <Folder size={18} style={{ color: 'var(--accent-color)' }} />
-              <span>Папка для скачивания и чтения книг</span>
+              <span>Download & Books Folder</span>
             </label>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-              Приложение автоматически отображает все книги из этой папки и сохраняет в неё новые загрузки.
+              The app automatically scans all books in this folder and saves new downloads into it.
             </p>
 
             <div
@@ -156,16 +222,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 borderRadius: 'var(--radius-md)',
                 marginBottom: 10,
                 wordBreak: 'break-all',
+                overflowWrap: 'anywhere',
                 fontFamily: 'monospace',
                 fontSize: 12,
                 color: 'var(--text-primary)',
               }}
             >
               <FolderOpen size={18} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-              <span style={{ flex: 1 }}>{settings.downloadPath || 'Папка не выбрана'}</span>
+              <span style={{ flex: 1, wordBreak: 'break-all', overflowWrap: 'anywhere' }}>
+                {settings.downloadPath || 'No folder selected'}
+              </span>
             </div>
 
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: isMobile ? 12 : 0 }}>
               <button
                 type="button"
                 className="auth-btn-primary"
@@ -174,7 +243,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 disabled={isPicking}
               >
                 <FolderOpen size={15} />
-                <span>{isPicking ? 'Выбор...' : 'Выбрать папку'}</span>
+                <span>{isPicking ? 'Selecting...' : 'Select Folder'}</span>
               </button>
 
               <button
@@ -184,9 +253,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClick={handleResetToDefault}
               >
                 <RotateCcw size={14} />
-                <span>По умолчанию</span>
+                <span>Default</span>
               </button>
             </div>
+
+            {/* Android Presets */}
+            {isMobile && (
+              <div style={{ marginTop: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
+                  Quick Android Folder Presets:
+                </span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {androidPresets.map((preset) => (
+                    <button
+                      key={preset.path}
+                      type="button"
+                      className={`theme-pill ${settings.downloadPath === preset.path ? 'active' : ''}`}
+                      style={{
+                        padding: '5px 10px',
+                        fontSize: 11,
+                        borderRadius: 'var(--radius-md)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                      onClick={() => onUpdateSettings({ downloadPath: preset.path })}
+                    >
+                      <HardDrive size={12} />
+                      <span>{preset.label}</span>
+                      {settings.downloadPath === preset.path && <Check size={12} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Series Folder Option */}
@@ -204,10 +304,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <Layers size={18} style={{ color: 'var(--accent-color)' }} />
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                    Создавать папки серий автоматически
+                    Automatically Create Series Folders
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                    Книги из серий будут скачиваться в подпапку с названием серии
+                    Books belonging to a series will be saved inside a subfolder named after the series
                   </div>
                 </div>
               </div>
@@ -221,7 +321,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }}
                 role="switch"
                 aria-checked={settings.createSeriesFolder !== false}
-                aria-label="Переключить авто-создание папок серий"
+                aria-label="Toggle automatic series folders creation"
               >
                 <span className="toggle-thumb" />
               </button>
@@ -232,7 +332,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <div className="modal-footer" style={{ padding: '16px 24px' }}>
           <button type="button" className="auth-btn-primary" onClick={onClose} style={{ minWidth: 100 }}>
-            Готово
+            Done
           </button>
         </div>
       </div>

@@ -3,10 +3,45 @@ import { LocalBookFile } from '../types/browse';
 
 export const fileManager = {
   /**
-   * Retrieves default download folder path from OS (e.g. ~/Downloads/FolioBooks).
+   * Checks if storage permission is granted (on Android). Returns true on desktop.
+   */
+  hasStoragePermission: async (): Promise<boolean> => {
+    try {
+      const androidBridge = (window as any).AndroidBridge;
+      if (androidBridge && typeof androidBridge.hasStoragePermission === 'function') {
+        return Boolean(androidBridge.hasStoragePermission());
+      }
+      return true;
+    } catch (err) {
+      console.warn('Failed to check storage permission:', err);
+      return true;
+    }
+  },
+
+  /**
+   * Requests storage permission from OS (on Android).
+   */
+  requestStoragePermission: async (): Promise<void> => {
+    try {
+      const androidBridge = (window as any).AndroidBridge;
+      if (androidBridge && typeof androidBridge.requestStoragePermission === 'function') {
+        androidBridge.requestStoragePermission();
+      }
+    } catch (err) {
+      console.warn('Failed to request storage permission:', err);
+    }
+  },
+
+  /**
+   * Retrieves default download folder path from OS (e.g. ~/Downloads/FolioBooks or Android /storage/emulated/0/Download/FolioBooks).
    */
   getDefaultDownloadDir: async (): Promise<string> => {
     try {
+      const androidBridge = (window as any).AndroidBridge;
+      if (androidBridge && typeof androidBridge.getDefaultDownloadDir === 'function') {
+        const dir = androidBridge.getDefaultDownloadDir();
+        if (dir) return dir;
+      }
       return await invoke<string>('get_default_download_dir');
     } catch (err) {
       console.warn('Failed to get default download dir from Tauri:', err);
@@ -15,10 +50,35 @@ export const fileManager = {
   },
 
   /**
-   * Opens native folder picker dialog.
+   * Opens native folder picker dialog (supports Desktop dialog and Android SAF document tree).
    */
   pickFolder: async (defaultPath?: string): Promise<string | null> => {
     try {
+      const androidBridge = (window as any).AndroidBridge;
+      if (androidBridge && typeof androidBridge.openFolderPicker === 'function') {
+        return new Promise<string | null>((resolve) => {
+          const originalCallback = (window as any).onAndroidFolderSelected;
+          const timer = setTimeout(() => {
+            (window as any).onAndroidFolderSelected = originalCallback;
+            resolve(null);
+          }, 60000); // 60s timeout
+
+          (window as any).onAndroidFolderSelected = (path: string) => {
+            clearTimeout(timer);
+            (window as any).onAndroidFolderSelected = originalCallback;
+            resolve(path || null);
+          };
+
+          try {
+            androidBridge.openFolderPicker();
+          } catch (e) {
+            clearTimeout(timer);
+            (window as any).onAndroidFolderSelected = originalCallback;
+            resolve(null);
+          }
+        });
+      }
+
       const result = await invoke<string | null>('pick_folder', {
         defaultPath: defaultPath || null,
       });

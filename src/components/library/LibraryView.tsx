@@ -11,8 +11,10 @@ import {
   RefreshCw,
   Search,
   FolderOpen,
+  ShieldAlert,
 } from 'lucide-react';
 import { fileManager } from '../../services/fileManager';
+import { isMobileDevice } from '../../services/systemUi';
 import {
   loadLocalBooksCache,
   saveLocalBookCache,
@@ -44,6 +46,23 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [hasPermission, setHasPermission] = useState(true);
+  const isMobile = isMobileDevice();
+
+  useEffect(() => {
+    fileManager.hasStoragePermission().then(setHasPermission);
+  }, []);
+
+  const handleRequestPermission = async () => {
+    await fileManager.requestStoragePermission();
+    setTimeout(async () => {
+      const granted = await fileManager.hasStoragePermission();
+      setHasPermission(granted);
+      if (granted) {
+        scanFolder();
+      }
+    }, 1000);
+  };
 
   // Metadata & cover cache state: bookId -> { title, author, coverUrl }
   const [metaCache, setMetaCache] = useState<Record<string, { title: string; author: string; coverUrl?: string }>>(() =>
@@ -138,7 +157,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const handleDeleteBook = async (book: LocalBookFile, e: React.MouseEvent) => {
     e.stopPropagation();
     const name = metaCache[book.id]?.title || book.fileName;
-    if (confirm(`Удалить книгу "${name}" с устройства?`)) {
+    if (confirm(`Delete book "${name}" from device?`)) {
       await fileManager.deleteBookFile(book.filePath);
       await scanFolder();
     }
@@ -177,21 +196,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
           <div>
             <h1 className="library-title">Folio</h1>
-            <p className="library-subtitle">Моя библиотека</p>
+            <p className="library-subtitle">My Library</p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="library-header-actions">
           {/* Browse Folio Online Library */}
           <button
             type="button"
             className="library-open-btn"
             onClick={onOpenBrowse}
-            title="Каталог Folio (Онлайн библиотека)"
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            title="Folio Catalog (Online Library)"
           >
-            <Globe size={18} />
-            <span>Каталог Folio</span>
+            <Globe size={17} />
+            <span className="library-open-btn-text">Folio Catalog</span>
           </button>
 
           {/* Refresh Folder */}
@@ -199,10 +217,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             type="button"
             className="header-icon-btn"
             onClick={scanFolder}
-            title="Обновить список книг"
-            style={{ width: 36, height: 36 }}
+            title="Refresh books list"
           >
-            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+            <RefreshCw size={17} className={isLoading ? 'animate-spin' : ''} />
           </button>
 
           {/* Settings */}
@@ -210,10 +227,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             type="button"
             className="header-icon-btn"
             onClick={onOpenSettings}
-            title="Настройки папки и темы"
-            style={{ width: 36, height: 36 }}
+            title="Folder & Theme Settings"
           >
-            <SettingsIcon size={18} />
+            <SettingsIcon size={17} />
           </button>
 
           {/* Profile */}
@@ -221,16 +237,47 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             type="button"
             className="header-icon-btn"
             onClick={onOpenProfile}
-            title="Профиль и аккаунт"
-            style={{ width: 36, height: 36 }}
+            title="Profile & Account"
           >
-            <UserCircle size={22} />
+            <UserCircle size={20} />
           </button>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="library-main-content" style={{ flex: 1, overflowY: 'auto' }}>
+        {/* Permission prompt banner for Android */}
+        {isMobile && !hasPermission && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '12px 14px',
+              backgroundColor: 'rgba(234, 179, 8, 0.12)',
+              border: '1px solid rgba(234, 179, 8, 0.35)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--text-primary)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 200 }}>
+              <ShieldAlert size={20} style={{ color: '#eab308', flexShrink: 0 }} />
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                Storage permission is required to download and read books on Android.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="auth-btn-primary"
+              style={{ padding: '6px 14px', fontSize: 12 }}
+              onClick={handleRequestPermission}
+            >
+              Grant Permission
+            </button>
+          </div>
+        )}
         {/* Search & Folder filters */}
         {localBooks.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -250,7 +297,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Поиск по моим книгам..."
+                  placeholder="Search my books..."
                   className="auth-input"
                   style={{ paddingLeft: 36, height: 38, fontSize: 13 }}
                 />
@@ -271,7 +318,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   }}
                   onClick={() => setSelectedFolder(null)}
                 >
-                  Все книги ({localBooks.length})
+                  All Books ({localBooks.length})
                 </button>
                 {allFolders.map((folder) => {
                   const count = localBooks.filter(
@@ -308,11 +355,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         <section className="library-recent-section">
           <div className="recent-section-header">
             <h2 className="recent-section-title">
-              {selectedFolder ? `Серия: ${selectedFolder}` : 'Книги на устройстве'}
+              {selectedFolder ? `Series: ${selectedFolder}` : 'Books on Device'}
             </h2>
             {filteredBooks.length > 0 && (
               <span className="recent-section-count">
-                {filteredBooks.length} {filteredBooks.length === 1 ? 'книга' : 'книг'}
+                {filteredBooks.length} {filteredBooks.length === 1 ? 'book' : 'books'}
               </span>
             )}
           </div>
@@ -321,10 +368,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             <div className="library-empty-box">
               <FolderOpen size={40} className="empty-box-icon" />
               <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
-                Папка для книг не настроена
+                Books folder not configured
               </h3>
               <p style={{ maxWidth: 400 }}>
-                Укажите папку на вашем устройстве для автоматического поиска и сохранения книг.
+                Select a folder on your device to automatically scan and save books.
               </p>
               <button
                 type="button"
@@ -332,19 +379,19 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 onClick={onOpenSettings}
                 style={{ marginTop: 8 }}
               >
-                Настроить папку
+                Configure Folder
               </button>
             </div>
           ) : localBooks.length === 0 ? (
             <div className="library-empty-box">
               <Sparkles size={40} className="empty-box-icon" />
               <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
-                В папке пока нет книг
+                No books in folder yet
               </h3>
-              <p style={{ maxWidth: 420 }}>
-                Папка: <code style={{ fontSize: 12 }}>{settings.downloadPath}</code>
+              <p style={{ maxWidth: 420, width: '100%', wordBreak: 'break-all', overflowWrap: 'anywhere' }}>
+                Folder: <code style={{ fontSize: 12, wordBreak: 'break-all', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{settings.downloadPath}</code>
               </p>
-              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+              <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button
                   type="button"
                   className="auth-btn-primary"
@@ -352,20 +399,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                 >
                   <Globe size={16} />
-                  <span>Перейти в Каталог Folio</span>
+                  <span>Folio Catalog</span>
                 </button>
                 <button
                   type="button"
                   className="auth-btn-secondary"
                   onClick={scanFolder}
                 >
-                  Обновить
+                  Refresh
                 </button>
               </div>
             </div>
           ) : filteredBooks.length === 0 ? (
             <div className="library-empty-box">
-              <p>По вашему запросу ничего не найдено.</p>
+              <p>No books found matching your query.</p>
             </div>
           ) : (
             <div className="books-grid">
@@ -437,8 +484,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         type="button"
                         className="book-card-delete-btn"
                         onClick={(e) => handleDeleteBook(book, e)}
-                        title="Удалить файл книги"
-                        aria-label="Удалить книгу"
+                        title="Delete book file"
+                        aria-label="Delete book"
                       >
                         <Trash2 size={14} />
                       </button>

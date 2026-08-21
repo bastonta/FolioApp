@@ -7,6 +7,15 @@
     <meta name="theme-color" content="#ffffff" />
     <meta name="color-scheme" content="light dark" />
     <title>Folio — E-Book Reader</title>
+    <script>
+      (function() {
+        try {
+          var settings = JSON.parse(localStorage.getItem('foliate_reader_settings') || '{}');
+          var theme = settings.theme || 'light';
+          document.documentElement.className = 'theme-' + theme;
+        } catch(e) {}
+      })();
+    </script>
   </head>
 
   <body>

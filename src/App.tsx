@@ -118,6 +118,9 @@ function AppRoutes() {
 
   // Sync settings updates
   const handleUpdateSettings = (newSettings: Partial<ReaderSettings>) => {
+    if (newSettings.theme) {
+      setStatusBarTheme(newSettings.theme);
+    }
     const updated = saveSettings(newSettings);
     setSettings(updated);
   };
@@ -174,7 +177,7 @@ function AppRoutes() {
       });
     } catch (err) {
       console.error('Failed to open local book file:', err);
-      alert('Не удалось открыть файл книги.');
+      alert('Failed to open book file.');
     }
   };
 
@@ -197,7 +200,7 @@ function AppRoutes() {
       });
     } catch (err) {
       console.error('Failed to open book from path:', err);
-      alert('Не удалось открыть скачанный файл книги.');
+      alert('Failed to open downloaded book file.');
     }
   };
 
