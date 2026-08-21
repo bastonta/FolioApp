@@ -23,6 +23,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   activeTab: 'contents',
   downloadPath: '',
   createSeriesFolder: true,
+  libraryViewMode: 'grid',
 };
 
 // IndexedDB for storing book files and covers

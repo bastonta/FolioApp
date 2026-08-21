@@ -73,6 +73,7 @@ export interface ReaderSettings {
   activeTab: 'contents' | 'annotations' | 'bookmarks';
   downloadPath?: string;
   createSeriesFolder?: boolean;
+  libraryViewMode?: 'grid' | 'list';
 }
 
 export interface FootnoteData {

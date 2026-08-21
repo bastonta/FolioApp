@@ -282,6 +282,7 @@ function AppRoutes() {
                   onOpenBrowse={() => setCurrentView('browse')}
                   onOpenSettings={() => setIsSettingsModalOpen(true)}
                   onOpenProfile={handleOpenProfile}
+                  onUpdateSettings={handleUpdateSettings}
                 />
               )}
             </RequireAuth>

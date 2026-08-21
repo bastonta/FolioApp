@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   BookOpen,
   Folder,
@@ -12,6 +12,11 @@ import {
   Search,
   FolderOpen,
   ShieldAlert,
+  LayoutGrid,
+  List as ListIcon,
+  ChevronRight,
+  ArrowLeft,
+  X,
 } from 'lucide-react';
 import { fileManager } from '../../services/fileManager';
 import { isMobileDevice } from '../../services/systemUi';
@@ -26,6 +31,7 @@ import {
 } from '../../services/storage';
 import { LocalBookFile } from '../../types/browse';
 import { ReaderSettings } from '../../types/reader';
+import { FolderStackCover } from './FolderStackCover';
 
 interface LibraryViewProps {
   settings: ReaderSettings;
@@ -33,6 +39,7 @@ interface LibraryViewProps {
   onOpenBrowse: () => void;
   onOpenSettings: () => void;
   onOpenProfile: () => void;
+  onUpdateSettings?: (settings: Partial<ReaderSettings>) => void;
 }
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
@@ -41,6 +48,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onOpenBrowse,
   onOpenSettings,
   onOpenProfile,
+  onUpdateSettings,
 }) => {
   const [localBooks, setLocalBooks] = useState<LocalBookFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -48,6 +56,17 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState(true);
   const isMobile = isMobileDevice();
+
+  // View mode: 'grid' | 'list'
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    return settings.libraryViewMode || (localStorage.getItem('folio_library_view_mode') as 'grid' | 'list') || 'grid';
+  });
+
+  const handleToggleViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    localStorage.setItem('folio_library_view_mode', mode);
+    onUpdateSettings?.({ libraryViewMode: mode });
+  };
 
   useEffect(() => {
     fileManager.hasStoragePermission().then(setHasPermission);
@@ -169,28 +188,59 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     }
   };
 
-  // Group / folders
-  const allFolders = Array.from(
-    new Set(localBooks.map((b) => b.folderName).filter(Boolean) as string[])
-  );
+  // Delete entire folder
+  const handleDeleteFolder = async (folderName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const booksInFolder = localBooks.filter((b) => b.folderName === folderName);
+    if (confirm(`Delete folder "${folderName}" and all ${booksInFolder.length} books inside?`)) {
+      for (const book of booksInFolder) {
+        await fileManager.deleteBookFile(book.filePath);
+      }
+      if (selectedFolder === folderName) {
+        setSelectedFolder(null);
+      }
+      await scanFolder();
+    }
+  };
 
-  // Filter books by search and selected folder
-  const filteredBooks = localBooks.filter((book) => {
-    const meta = metaCache[book.id];
-    const title = meta?.title || book.fileName;
-    const author = meta?.author || '';
-    const folder = book.folderName || '';
+  // Group books by folders
+  const { folderMap, rootBooks, folderNames } = useMemo(() => {
+    const map = new Map<string, LocalBookFile[]>();
+    const roots: LocalBookFile[] = [];
 
-    const matchesSearch =
-      !searchQuery.trim() ||
-      title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      folder.toLowerCase().includes(searchQuery.toLowerCase());
+    for (const book of localBooks) {
+      if (book.folderName) {
+        const existing = map.get(book.folderName) || [];
+        existing.push(book);
+        map.set(book.folderName, existing);
+      } else {
+        roots.push(book);
+      }
+    }
 
-    const matchesFolder = !selectedFolder || folder === selectedFolder;
+    const folders = Array.from(map.keys()).sort((a, b) => a.localeCompare(b));
+    return { folderMap: map, rootBooks: roots, folderNames: folders };
+  }, [localBooks]);
 
-    return matchesSearch && matchesFolder;
-  });
+  // Handle Search Filtering
+  const isSearching = searchQuery.trim().length > 0;
+  const filteredSearchBooks = useMemo(() => {
+    if (!isSearching) return [];
+    const q = searchQuery.toLowerCase().trim();
+    return localBooks.filter((book) => {
+      const meta = metaCache[book.id];
+      const title = (meta?.title || book.fileName).toLowerCase();
+      const author = (meta?.author || '').toLowerCase();
+      const folder = (book.folderName || '').toLowerCase();
+      return title.includes(q) || author.includes(q) || folder.includes(q);
+    });
+  }, [isSearching, searchQuery, localBooks, metaCache]);
+
+  // Current folder's books (when inside a folder)
+  const currentFolderBooks = useMemo(() => {
+    if (!selectedFolder) return [];
+    return folderMap.get(selectedFolder) || [];
+  }, [selectedFolder, folderMap]);
 
   return (
     <div className="library-view-container" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -266,6 +316,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               borderRadius: 'var(--radius-md)',
               color: 'var(--text-primary)',
               flexWrap: 'wrap',
+              marginBottom: 12,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 200 }}>
@@ -284,11 +335,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             </button>
           </div>
         )}
-        {/* Search & Folder filters */}
+
+        {/* Toolbar: Search, View Mode Toggle & Folder Path */}
         {localBooks.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <div style={{ flex: 1, position: 'relative' }}>
+          <div className="library-toolbar-container">
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Search input */}
+              <div style={{ flex: '1 1 200px', position: 'relative' }}>
                 <Search
                   size={16}
                   style={{
@@ -303,55 +356,71 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search my books..."
+                  placeholder="Search downloaded books & folders..."
                   className="auth-input"
-                  style={{ paddingLeft: 36, height: 38, fontSize: 13 }}
+                  style={{ paddingLeft: 36, paddingRight: searchQuery ? 32 : 12, height: 38, fontSize: 13 }}
                 />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    style={{
+                      position: 'absolute',
+                      right: 10,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--text-muted)',
+                      padding: 2,
+                    }}
+                    title="Clear search"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* View mode toggle (Grid / List) */}
+              <div className="view-mode-toggle-group">
+                <button
+                  type="button"
+                  className={`view-mode-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                  onClick={() => handleToggleViewMode('grid')}
+                  title="Grid View"
+                  aria-label="Grid View"
+                >
+                  <LayoutGrid size={16} />
+                </button>
+                <button
+                  type="button"
+                  className={`view-mode-btn ${viewMode === 'list' ? 'active' : ''}`}
+                  onClick={() => handleToggleViewMode('list')}
+                  title="List View"
+                  aria-label="List View"
+                >
+                  <ListIcon size={16} />
+                </button>
               </div>
             </div>
 
-            {/* Folder filter pills */}
-            {allFolders.length > 0 && (
-              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+            {/* Folder Breadcrumb & Navigation */}
+            {selectedFolder && !isSearching && (
+              <div className="library-folder-breadcrumb">
                 <button
                   type="button"
-                  className={`theme-pill ${!selectedFolder ? 'active' : ''}`}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: 12,
-                    borderRadius: 'var(--radius-full)',
-                    whiteSpace: 'nowrap',
-                  }}
+                  className="breadcrumb-back-btn"
                   onClick={() => setSelectedFolder(null)}
                 >
-                  All Books ({localBooks.length})
+                  <ArrowLeft size={15} />
+                  <span>All Books</span>
                 </button>
-                {allFolders.map((folder) => {
-                  const count = localBooks.filter(
-                    (b) => b.folderName === folder
-                  ).length;
-                  return (
-                    <button
-                      key={folder}
-                      type="button"
-                      className={`theme-pill ${selectedFolder === folder ? 'active' : ''}`}
-                      style={{
-                        padding: '4px 10px',
-                        fontSize: 12,
-                        borderRadius: 'var(--radius-full)',
-                        whiteSpace: 'nowrap',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                      onClick={() => setSelectedFolder(folder)}
-                    >
-                      <Folder size={12} />
-                      <span>{folder}</span>
-                      <span style={{ opacity: 0.7 }}>({count})</span>
-                    </button>
-                  );
-                })}
+                <ChevronRight size={14} className="breadcrumb-separator" />
+                <span className="breadcrumb-current-folder">
+                  <Folder size={14} style={{ color: 'var(--accent-color)', flexShrink: 0 }} />
+                  <span style={{ fontWeight: 700 }}>{selectedFolder}</span>
+                  <span className="breadcrumb-count">
+                    ({currentFolderBooks.length} {currentFolderBooks.length === 1 ? 'book' : 'books'})
+                  </span>
+                </span>
               </div>
             )}
           </div>
@@ -359,16 +428,27 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
         {/* Local Books Section */}
         <section className="library-recent-section">
-          <div className="recent-section-header">
-            <h2 className="recent-section-title">
-              {selectedFolder ? `Series: ${selectedFolder}` : 'Books on Device'}
-            </h2>
-            {filteredBooks.length > 0 && (
+          {/* Section title & count */}
+          {!settings.downloadPath ? null : localBooks.length === 0 ? null : (
+            <div className="recent-section-header">
+              <h2 className="recent-section-title">
+                {isSearching
+                  ? `Search: "${searchQuery}"`
+                  : selectedFolder
+                  ? selectedFolder
+                  : 'Books & Collections'}
+              </h2>
               <span className="recent-section-count">
-                {filteredBooks.length} {filteredBooks.length === 1 ? 'book' : 'books'}
+                {isSearching
+                  ? `${filteredSearchBooks.length} found`
+                  : selectedFolder
+                  ? `${currentFolderBooks.length} ${currentFolderBooks.length === 1 ? 'book' : 'books'}`
+                  : `${localBooks.length} ${localBooks.length === 1 ? 'book' : 'books'}${
+                      folderNames.length > 0 ? ` in ${folderNames.length} folders` : ''
+                    }`}
               </span>
-            )}
-          </div>
+            </div>
+          )}
 
           {!settings.downloadPath ? (
             <div className="library-empty-box">
@@ -416,141 +496,376 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 </button>
               </div>
             </div>
-          ) : filteredBooks.length === 0 ? (
-            <div className="library-empty-box">
-              <p>No books found matching your query.</p>
-            </div>
+          ) : isSearching ? (
+            /* Search results view */
+            filteredSearchBooks.length === 0 ? (
+              <div className="library-empty-box">
+                <p>No books found matching &ldquo;{searchQuery}&rdquo;.</p>
+              </div>
+            ) : viewMode === 'grid' ? (
+              <div className="books-grid">
+                {filteredSearchBooks.map((book) => renderBookCardGrid(book))}
+              </div>
+            ) : (
+              <div className="books-list">
+                {filteredSearchBooks.map((book) => renderBookItemRow(book))}
+              </div>
+            )
+          ) : selectedFolder ? (
+            /* Inside a folder view */
+            currentFolderBooks.length === 0 ? (
+              <div className="library-empty-box">
+                <p>No books in this folder.</p>
+              </div>
+            ) : viewMode === 'grid' ? (
+              <div className="books-grid">
+                {currentFolderBooks.map((book) => renderBookCardGrid(book))}
+              </div>
+            ) : (
+              <div className="books-list">
+                {currentFolderBooks.map((book) => renderBookItemRow(book))}
+              </div>
+            )
           ) : (
-            <div className="books-grid">
-              {filteredBooks.map((book) => {
-                const meta = metaCache[book.id];
-                const title = meta?.title || book.fileName.replace(/\.[^/.]+$/, '');
-                const author = meta?.author || 'Unknown Author';
-                const folderName = book.folderName;
-
-                // Reading location & progress
-                const location = loadLastLocation(book.id);
-                const percent = Math.round((location?.fraction || 0) * 100);
-
-                return (
-                  <div
-                    key={book.id}
-                    className="book-card"
-                    onClick={() => onOpenLocalBook(book, meta)}
-                  >
-                    <div className="book-card-cover-wrap">
-                      {/* Background placeholder */}
-                      <div className="book-card-cover-placeholder">
-                        <BookOpen size={36} />
+            /* Root view: folders & top-level books */
+            viewMode === 'grid' ? (
+              <div className="books-grid">
+                {/* 1. Folders as grid cards */}
+                {folderNames.map((folderName) => {
+                  const booksInFolder = folderMap.get(folderName) || [];
+                  return (
+                    <div
+                      key={`folder-${folderName}`}
+                      className="folder-grid-card"
+                      onClick={() => setSelectedFolder(folderName)}
+                      title={`Open folder: ${folderName}`}
+                    >
+                      {/* Top folder title header (as in screenshot) */}
+                      <div className="folder-grid-header">
+                        <span className="folder-grid-title" title={folderName}>
+                          {folderName}
+                        </span>
                       </div>
 
-                      {/* Cover image */}
-                      {meta?.coverUrl && (
-                        <img
-                          src={meta.coverUrl}
-                          alt={title}
-                          className="book-card-cover"
-                          loading="lazy"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                      )}
-
-                      {/* Folder/Series badge */}
-                      {folderName && (
-                        <span
-                          style={{
-                            position: 'absolute',
-                            top: 6,
-                            left: 6,
-                            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-                            color: '#c084fc',
-                            fontSize: 10,
-                            fontWeight: 600,
-                            padding: '2px 6px',
-                            borderRadius: 6,
-                            zIndex: 5,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 3,
-                            maxWidth: '85%',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          title={folderName}
-                        >
+                      {/* Stacked covers */}
+                      <div className="folder-stack-container">
+                        <FolderStackCover books={booksInFolder} metaCache={metaCache} />
+                        <span className="folder-count-badge">
                           <Folder size={10} />
-                          <span>{folderName}</span>
+                          <span>{booksInFolder.length}</span>
                         </span>
-                      )}
+                        <button
+                          type="button"
+                          className="folder-delete-btn"
+                          onClick={(e) => handleDeleteFolder(folderName, e)}
+                          title={`Delete folder "${folderName}"`}
+                          aria-label="Delete folder"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
 
-                      <button
-                        type="button"
-                        className="book-card-delete-btn"
-                        onClick={(e) => handleDeleteBook(book, e)}
-                        title="Delete book file"
-                        aria-label="Delete book"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-
-                    <div className="book-card-details">
-                      <h4 className="book-card-title" title={title}>
-                        {title}
-                      </h4>
-                      <p className="book-card-author" title={author}>
-                        {author}
-                      </p>
-
-                      <div className="book-card-progress-wrap">
-                        <div className="book-card-progress-bar">
-                          <div
-                            className="book-card-progress-fill"
-                            style={{ width: `${percent}%` }}
-                          />
+                      {/* Details at bottom */}
+                      <div className="folder-grid-footer">
+                        <div className="folder-footer-info">
+                          <span className="folder-footer-count">
+                            {booksInFolder.length} {booksInFolder.length === 1 ? 'book' : 'books'}
+                          </span>
                         </div>
-                        <span className="book-card-percent">{percent}%</span>
-                      </div>
-
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginTop: 4,
-                          fontSize: 11,
-                          color: 'var(--text-muted)',
-                        }}
-                      >
-                        <span>
-                          {book.fileSize
-                            ? `${(book.fileSize / (1024 * 1024)).toFixed(1)} MB`
-                            : ''}
+                        <span className="folder-open-action">
+                          <span>Open</span>
+                          <ChevronRight size={13} />
                         </span>
-
-                        {book.modifiedAt && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                            <Clock size={11} />
-                            <span>
-                              {new Date(book.modifiedAt).toLocaleDateString(undefined, {
-                                month: 'short',
-                                day: 'numeric',
-                              })}
-                            </span>
-                          </div>
-                        )}
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+
+                {/* 2. Root books as grid cards */}
+                {rootBooks.map((book) => renderBookCardGrid(book))}
+              </div>
+            ) : (
+              /* List view: folders & top-level books */
+              <div className="books-list">
+                {/* 1. Folders as list items */}
+                {folderNames.map((folderName) => {
+                  const booksInFolder = folderMap.get(folderName) || [];
+                  const sampleAuthors = Array.from(
+                    new Set(
+                      booksInFolder
+                        .map((b) => metaCache[b.id]?.author)
+                        .filter((a) => a && a !== 'Unknown Author')
+                    )
+                  ).slice(0, 2).join(', ');
+
+                  return (
+                    <div
+                      key={`folder-${folderName}`}
+                      className="folder-list-item"
+                      onClick={() => setSelectedFolder(folderName)}
+                    >
+                      {/* Mini stacked cover thumbnail */}
+                      <div className="folder-list-thumbnail-wrap">
+                        <FolderStackCover books={booksInFolder} metaCache={metaCache} compact={true} />
+                      </div>
+
+                      {/* Folder info */}
+                      <div className="book-list-details">
+                        <div className="folder-list-title-row">
+                          <h4 className="book-list-title folder-title">
+                            {folderName}
+                          </h4>
+                          <span className="folder-list-badge">
+                            {booksInFolder.length} {booksInFolder.length === 1 ? 'book' : 'books'}
+                          </span>
+                        </div>
+
+                        {sampleAuthors && (
+                          <p className="book-list-author" title={sampleAuthors}>
+                            {sampleAuthors}
+                          </p>
+                        )}
+                        <p className="folder-list-hint">
+                          Collection folder • Click to open
+                        </p>
+                      </div>
+
+                      {/* Right side actions */}
+                      <div className="folder-list-right">
+                        <button
+                          type="button"
+                          className="list-delete-btn"
+                          onClick={(e) => handleDeleteFolder(folderName, e)}
+                          title="Delete folder"
+                          aria-label="Delete folder"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                        <ChevronRight size={18} className="folder-list-arrow" />
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* 2. Root books as list items */}
+                {rootBooks.map((book) => renderBookItemRow(book))}
+              </div>
+            )
           )}
         </section>
       </main>
     </div>
   );
+
+  // Helper renderer: Book Card for Grid View
+  function renderBookCardGrid(book: LocalBookFile) {
+    const meta = metaCache[book.id];
+    const title = meta?.title || book.fileName.replace(/\.[^/.]+$/, '');
+    const author = meta?.author || 'Unknown Author';
+    const folderName = book.folderName;
+
+    // Reading location & progress
+    const location = loadLastLocation(book.id);
+    const percent = Math.round((location?.fraction || 0) * 100);
+
+    return (
+      <div
+        key={book.id}
+        className="book-card"
+        onClick={() => onOpenLocalBook(book, meta)}
+      >
+        <div className="book-card-cover-wrap">
+          {/* Background placeholder */}
+          <div className="book-card-cover-placeholder">
+            <BookOpen size={36} />
+          </div>
+
+          {/* Cover image */}
+          {meta?.coverUrl && (
+            <img
+              src={meta.coverUrl}
+              alt={title}
+              className="book-card-cover"
+              loading="lazy"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          )}
+
+          {/* Folder/Series badge if in search view */}
+          {folderName && isSearching && (
+            <span
+              style={{
+                position: 'absolute',
+                top: 6,
+                left: 6,
+                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                color: '#c084fc',
+                fontSize: 10,
+                fontWeight: 600,
+                padding: '2px 6px',
+                borderRadius: 6,
+                zIndex: 5,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 3,
+                maxWidth: '85%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={folderName}
+            >
+              <Folder size={10} />
+              <span>{folderName}</span>
+            </span>
+          )}
+
+          {/* Percent badge overlay in grid (as in e-reader reference) */}
+          {percent > 0 && (
+            <span className="book-card-percent-badge">
+              {percent}%
+            </span>
+          )}
+
+          <button
+            type="button"
+            className="book-card-delete-btn"
+            onClick={(e) => handleDeleteBook(book, e)}
+            title="Delete book file"
+            aria-label="Delete book"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+
+        <div className="book-card-details">
+          <h4 className="book-card-title" title={title}>
+            {title}
+          </h4>
+          <p className="book-card-author" title={author}>
+            {author}
+          </p>
+
+          <div className="book-card-progress-wrap">
+            <div className="book-card-progress-bar">
+              <div
+                className="book-card-progress-fill"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+            <span className="book-card-percent">{percent}%</span>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginTop: 4,
+              fontSize: 11,
+              color: 'var(--text-muted)',
+            }}
+          >
+            <span>
+              {book.fileSize
+                ? `${(book.fileSize / (1024 * 1024)).toFixed(1)} MB`
+                : ''}
+            </span>
+
+            {book.modifiedAt && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                <Clock size={11} />
+                <span>
+                  {new Date(book.modifiedAt).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Helper renderer: Book Item Row for List View (matching screenshot 1)
+  function renderBookItemRow(book: LocalBookFile) {
+    const meta = metaCache[book.id];
+    const title = meta?.title || book.fileName.replace(/\.[^/.]+$/, '');
+    const author = meta?.author || 'Unknown Author';
+    const folderName = book.folderName;
+
+    // Reading location & progress
+    const location = loadLastLocation(book.id);
+    const fraction = location?.fraction || 0;
+    const percent = Math.round(fraction * 100);
+    const readingStatus = percent >= 100 ? 'Completed' : percent > 0 ? 'Reading' : 'Not started';
+
+    return (
+      <div
+        key={book.id}
+        className="book-list-item"
+        onClick={() => onOpenLocalBook(book, meta)}
+      >
+        {/* Cover thumbnail on the left */}
+        <div className="book-list-thumbnail-wrap">
+          {meta?.coverUrl ? (
+            <img
+              src={meta.coverUrl}
+              alt={title}
+              className="book-list-thumbnail"
+              loading="lazy"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <div className="book-list-thumbnail-placeholder">
+              <BookOpen size={20} />
+            </div>
+          )}
+        </div>
+
+        {/* Center book info: Title, Series/Folder subtitle, Author */}
+        <div className="book-list-details">
+          <h4 className="book-list-title" title={title}>
+            {title}
+          </h4>
+
+          {folderName && (
+            <p className="book-list-subtitle" title={folderName}>
+              <Folder size={11} style={{ opacity: 0.7 }} />
+              <span>{folderName}</span>
+            </p>
+          )}
+
+          <p className="book-list-author" title={author}>
+            {author}
+          </p>
+        </div>
+
+        {/* Right side reading status & progress */}
+        <div className="book-list-reading-info">
+          <span className="book-list-status">{readingStatus}</span>
+          <span className="book-list-percent">{percent}%</span>
+        </div>
+
+        {/* Delete button */}
+        <div className="book-list-actions">
+          <button
+            type="button"
+            className="list-delete-btn"
+            onClick={(e) => handleDeleteBook(book, e)}
+            title="Delete book"
+            aria-label="Delete book"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </div>
+    );
+  }
 };
