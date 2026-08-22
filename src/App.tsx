@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { FoliateReader } from './components/reader/FoliateReader';
 import { LibraryView } from './components/library/LibraryView';
 import { BrowseView } from './components/library/BrowseView';
@@ -19,6 +19,7 @@ import {
 } from './services/storage';
 import { fileManager } from './services/fileManager';
 import { setStatusBarVisible, setStatusBarTheme } from './services/systemUi';
+import { useBackHandler } from './services/backHandler';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Auth pages
@@ -98,6 +99,39 @@ function AppRoutes() {
   const [currentView, setCurrentView] = useState<'library' | 'browse'>('library');
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Handle back button for Settings Modal
+  useBackHandler(
+    () => {
+      setIsSettingsModalOpen(false);
+      return true;
+    },
+    isSettingsModalOpen,
+    100
+  );
+
+  // Handle back button for non-root routes (e.g., /profile, /register, /forgot-password, /confirm-email)
+  useBackHandler(
+    () => {
+      if (location.pathname === '/profile') {
+        navigate('/');
+        return true;
+      }
+      if (
+        location.pathname === '/register' ||
+        location.pathname === '/forgot-password' ||
+        location.pathname === '/confirm-email'
+      ) {
+        navigate('/login');
+        return true;
+      }
+      navigate(-1);
+      return true;
+    },
+    location.pathname !== '/' && location.pathname !== '/login' && location.pathname !== '/server',
+    10
+  );
 
   // Initialize default download directory if not configured
   useEffect(() => {

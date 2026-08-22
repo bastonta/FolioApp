@@ -22,6 +22,7 @@ import { fileManager } from '../../services/fileManager';
 import { getAccessToken, getServerUrl } from '../../api/tokenManager';
 import { BrowseItem } from '../../types/browse';
 import { ReaderSettings } from '../../types/reader';
+import { useBackHandler } from '../../services/backHandler';
 
 interface BrowseViewProps {
   settings: ReaderSettings;
@@ -67,6 +68,11 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   const [sortBy, setSortBy] = useState<'name' | 'recent' | 'sortOrder'>('name');
   const [page, setPage] = useState(1);
   const limit = 20;
+
+  // Back button handling in BrowseView (highest to lowest priority)
+  useBackHandler(() => { setCurrentSeriesPath((prev) => prev.slice(0, -1)); return true; }, currentSeriesPath.length > 0, 50);
+  useBackHandler(() => { setSearch(''); setSearchInput(''); return true; }, Boolean(search || searchInput), 40);
+  useBackHandler(() => { onBackToLocalLibrary(); return true; }, true, 20);
 
   // Data & loading states
   const [items, setItems] = useState<BrowseItem[]>([]);

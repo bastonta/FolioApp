@@ -34,6 +34,7 @@ import { LocalBookFile } from '../../types/browse';
 import { ReaderSettings, RecentBook } from '../../types/reader';
 import { FolderStackCover } from './FolderStackCover';
 import { pullBookProgress } from '../../services/readerDb';
+import { useBackHandler } from '../../services/backHandler';
 
 interface LibraryViewProps {
   settings: ReaderSettings;
@@ -59,6 +60,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [hasPermission, setHasPermission] = useState(true);
   const [recentBooks, setRecentBooks] = useState<RecentBook[]>(() => loadRecentBooks().slice(0, 3));
   const isMobile = isMobileDevice();
+
+  // Back button handling in LibraryView (highest to lowest priority)
+  useBackHandler(() => { setCurrentFolderPath((prev) => prev.slice(0, -1)); return true; }, currentFolderPath.length > 0, 40);
+  useBackHandler(() => { setSearchQuery(''); return true; }, Boolean(searchQuery), 30);
 
   useEffect(() => {
     const list = loadRecentBooks().slice(0, 3);

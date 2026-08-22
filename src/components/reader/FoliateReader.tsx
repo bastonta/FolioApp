@@ -20,6 +20,7 @@ import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
 import { SettingsPopover } from './SettingsPopover';
 import { BookInfoModal } from './BookInfoModal';
 import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu, isMobileDevice } from '../../services/systemUi';
+import { useBackHandler } from '../../services/backHandler';
 import {
   saveLastLocation,
   storeBookCover,
@@ -203,7 +204,7 @@ const getReaderCSS = (settings: ReaderSettings) => {
       user-select: text !important;
       -webkit-user-select: text !important;
     }
-    p, li, blockquote, dd, div {
+    p, li, blockquote, dd {
       line-height: ${settings.spacing} !important;
       text-align: ${settings.justify ? 'justify' : 'start'} !important;
       -webkit-hyphens: ${settings.hyphenate ? 'auto' : 'manual'} !important;
@@ -213,6 +214,39 @@ const getReaderCSS = (settings: ReaderSettings) => {
       -webkit-hyphenate-limit-lines: 2;
       hanging-punctuation: allow-end last;
       widows: 2;
+    }
+    /* Prevent overriding explicit alignment */
+    [align="left"] { text-align: left !important; }
+    [align="right"] { text-align: right !important; }
+    [align="center"] { text-align: center !important; }
+    [align="justify"] { text-align: justify !important; }
+
+    /* Code blocks formatting, wrap protection & disable justification */
+    pre, code, kbd, samp, tt, var {
+      text-align: start !important;
+      -webkit-hyphens: none !important;
+      hyphens: none !important;
+      tab-size: 2;
+    }
+    pre {
+      white-space: pre-wrap !important;
+      word-break: break-word !important;
+      overflow-wrap: break-word !important;
+      box-sizing: border-box !important;
+      max-width: 100% !important;
+    }
+    code {
+      white-space: pre-wrap !important;
+      word-break: break-word !important;
+      overflow-wrap: break-word !important;
+    }
+    pre * {
+      text-align: start !important;
+      -webkit-hyphens: none !important;
+      hyphens: none !important;
+      white-space: pre-wrap !important;
+      word-break: break-word !important;
+      overflow-wrap: break-word !important;
     }
     a:link {
       color: ${colors.link};
@@ -293,6 +327,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const isInitialLoadRef = useRef(true);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Back button handling within the reader (highest to lowest priority)
+  useBackHandler(() => { setFootnote(null); return true; }, Boolean(footnote), 120);
+  useBackHandler(() => { setIsBookInfoOpen(false); return true; }, isBookInfoOpen, 110);
+  useBackHandler(() => { setSelection(null); return true; }, Boolean(selection), 100);
+  useBackHandler(() => { setIsSettingsOpen(false); return true; }, isSettingsOpen, 90);
+  useBackHandler(() => { onUpdateSettings({ sidebarOpen: false }); return true; }, Boolean(settings.sidebarOpen), 80);
+  useBackHandler(() => { onBackToLibrary(); return true; }, true, 30);
 
   const showSyncToast = useCallback(
     (message: string, type: 'info' | 'success' | 'error' = 'info') => {

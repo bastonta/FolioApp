@@ -19,7 +19,9 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -48,6 +50,42 @@ class MainActivity : TauriActivity() {
     val insetsController = WindowCompat.getInsetsController(window, window.decorView)
     insetsController.isAppearanceLightStatusBars = true
     insetsController.isAppearanceLightNavigationBars = true
+
+    // Intercept hardware/gesture Back button and forward to web application
+    val backPressedCallback = object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        if (currentExplicitActionMode != null) {
+          currentExplicitActionMode?.finish()
+          currentExplicitActionMode = null
+          isShowingExplicitActionMode = false
+          return
+        }
+
+        val webView = mainWebView
+        if (webView != null) {
+          webView.evaluateJavascript(
+            "if (typeof window.handleAndroidBack === 'function') { window.handleAndroidBack(); } else { false; }",
+            ValueCallback { result ->
+              val isHandled = result == "true"
+              if (!isHandled) {
+                runOnUiThread {
+                  isEnabled = false
+                  if (!moveTaskToBack(false)) {
+                    onBackPressedDispatcher.onBackPressed()
+                  }
+                  isEnabled = true
+                }
+              }
+            }
+          )
+        } else {
+          isEnabled = false
+          onBackPressedDispatcher.onBackPressed()
+          isEnabled = true
+        }
+      }
+    }
+    onBackPressedDispatcher.addCallback(this, backPressedCallback)
   }
 
   private fun wrapActionModeCallback(callback: ActionMode.Callback?): ActionMode.Callback? {
@@ -383,6 +421,20 @@ class MainActivity : TauriActivity() {
           folioDir.absolutePath
         } catch (e: Exception) {
           "/storage/emulated/0/Download/FolioBooks"
+        }
+      }
+
+      @JavascriptInterface
+      fun minimizeApp() {
+        runOnUiThread {
+          moveTaskToBack(true)
+        }
+      }
+
+      @JavascriptInterface
+      fun exitApp() {
+        runOnUiThread {
+          finish()
         }
       }
     }, "AndroidBridge")
