@@ -89,8 +89,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         className="modal-container"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="modal-drag-handle" />
         <div className="modal-header">
-          <div className="modal-drag-handle" />
           <div className="modal-header-title-row">
             <span className="modal-title">App Settings</span>
             <button className="modal-close-btn" onClick={onClose} aria-label="Close">
