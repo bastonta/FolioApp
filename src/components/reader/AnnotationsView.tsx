@@ -1,5 +1,5 @@
 import React from 'react';
-import { Annotation } from '../../types/reader';
+import { Annotation, getAnnotationColor } from '../../types/reader';
 import { Trash2, Highlighter } from 'lucide-react';
 
 interface AnnotationsViewProps {
@@ -32,7 +32,7 @@ export const AnnotationsView: React.FC<AnnotationsViewProps> = ({
                 <div className="annotation-card-top">
                   <span
                     className="annotation-dot"
-                    style={{ backgroundColor: ann.color || '#eab308' }}
+                    style={{ backgroundColor: getAnnotationColor(ann.color).hex }}
                   />
                   <p className="annotation-quote-text" title={ann.text}>
                     {ann.text}

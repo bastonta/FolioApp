@@ -94,3 +94,21 @@ export const ANNOTATION_COLORS: Record<string, { label: string; bg: string; text
   orange: { label: 'Orange', bg: 'bg-orange-500/20', text: 'text-orange-400', hex: '#f97316', border: 'border-orange-500/40' },
   purple: { label: 'Purple', bg: 'bg-purple-500/20', text: 'text-purple-400', hex: '#a855f7', border: 'border-purple-500/40' },
 };
+
+export type AnnotationColorKey = keyof typeof ANNOTATION_COLORS;
+
+export const getAnnotationColorKey = (color?: string): string => {
+  if (!color) return 'yellow';
+  const lower = color.toLowerCase().trim();
+  if (ANNOTATION_COLORS[lower]) return lower;
+  if (lower === 'grey') return 'gray';
+  for (const [key, val] of Object.entries(ANNOTATION_COLORS)) {
+    if (val.hex.toLowerCase() === lower) return key;
+  }
+  return 'yellow';
+};
+
+export const getAnnotationColor = (color?: string) => {
+  const key = getAnnotationColorKey(color);
+  return ANNOTATION_COLORS[key] || ANNOTATION_COLORS.yellow;
+};

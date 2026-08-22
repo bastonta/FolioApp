@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { Annotation, Bookmark } from '../types/reader';
+import { Annotation, Bookmark, getAnnotationColorKey } from '../types/reader';
 import { getServerUrl, getAccessToken } from '../api/tokenManager';
 import { apiGet } from '../api/client';
 import { parseCfiRange, toCfiRange } from '../utils/cfi';
@@ -262,7 +262,7 @@ export async function loadDbAnnotations(bookId: string): Promise<Annotation[]> {
         id: ann.id,
         bookId: ann.bookId,
         value: cfiRange || ann.value,
-        color: ann.color,
+        color: getAnnotationColorKey(ann.color),
         style: (ann.style as any) || 'highlight',
         text: ann.selectedText,
         note: ann.note,
@@ -279,16 +279,18 @@ export async function loadDbAnnotations(bookId: string): Promise<Annotation[]> {
 
 export async function saveDbAnnotation(annotation: Annotation): Promise<void> {
   const { locationStart, locationEnd } = parseCfiRange(annotation.value);
+  const colorKey = getAnnotationColorKey(annotation.color);
   if (!isTauri()) {
     try {
       const data = localStorage.getItem('foliate_book_annotations');
       const map = data ? JSON.parse(data) : {};
       const list: Annotation[] = map[annotation.bookId] || [];
+      const normalizedAnn: Annotation = { ...annotation, color: colorKey };
       const idx = list.findIndex((a) => a.id === annotation.id || a.value === annotation.value);
       if (idx >= 0) {
-        list[idx] = annotation;
+        list[idx] = normalizedAnn;
       } else {
-        list.unshift(annotation);
+        list.unshift(normalizedAnn);
       }
       map[annotation.bookId] = list;
       localStorage.setItem('foliate_book_annotations', JSON.stringify(map));
@@ -307,7 +309,7 @@ export async function saveDbAnnotation(annotation: Annotation): Promise<void> {
       value: annotation.value,
       selectedText: annotation.text,
       note: annotation.note || null,
-      color: annotation.color,
+      color: colorKey,
       style: annotation.style || 'highlight',
       chapterTitle: annotation.chapterTitle || null,
       sectionIndex: annotation.sectionIndex ?? null,

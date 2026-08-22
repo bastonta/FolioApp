@@ -508,6 +508,29 @@ async fn sync_bookmarks(
 }
 
 // ---------------- ANNOTATIONS SYNC ----------------
+fn normalize_annotation_color(color: Option<&str>) -> Option<String> {
+    let c = color?.trim().to_lowercase();
+    match c.as_str() {
+        "yellow" | "#eab308" => Some("yellow".to_string()),
+        "gray" | "grey" | "#64748b" => Some("gray".to_string()),
+        "blue" | "#3b82f6" => Some("blue".to_string()),
+        "red" | "#ef4444" => Some("red".to_string()),
+        "green" | "#22c55e" => Some("green".to_string()),
+        "olive" | "#84cc16" => Some("olive".to_string()),
+        "orange" | "#f97316" => Some("orange".to_string()),
+        "purple" | "#a855f7" => Some("purple".to_string()),
+        other => {
+            if other.is_empty() {
+                Some("yellow".to_string())
+            } else if other.starts_with('#') {
+                Some("yellow".to_string())
+            } else {
+                Some(other.to_string())
+            }
+        }
+    }
+}
+
 async fn sync_annotations(
     pool: &DbPool,
     client: &reqwest::Client,
@@ -568,7 +591,7 @@ async fn sync_annotations(
             },
             selected_text: ann.selected_text.clone(),
             note: ann.note.clone(),
-            color: Some(ann.color.clone()),
+            color: normalize_annotation_color(Some(&ann.color)),
         };
 
         let res = client
@@ -607,7 +630,7 @@ async fn sync_annotations(
                 format!("{base_url}/api/books/{server_book_id}/annotations/{server_id}?format=cfi");
             let payload = ServerUpdateAnnotationPayload {
                 note: ann.note.clone(),
-                color: Some(ann.color.clone()),
+                color: normalize_annotation_color(Some(&ann.color)),
             };
 
             let res = client
@@ -654,6 +677,7 @@ async fn sync_annotations(
                                 && loc_ann.sync_status != "pending_delete"
                                 && loc_ann.sync_status != "pending_update"
                             {
+                                let normalized_color = normalize_annotation_color(rann.color.as_deref());
                                 let _ = sqlx::query(
                                     r#"
                                     UPDATE annotations SET
@@ -674,7 +698,7 @@ async fn sync_annotations(
                                 .bind(&rann.location_end)
                                 .bind(&rann.selected_text)
                                 .bind(&rann.note)
-                                .bind(&rann.color)
+                                .bind(&normalized_color)
                                 .bind(&rann.updated_at)
                                 .bind(&loc_ann.id)
                                 .execute(pool)
@@ -688,6 +712,8 @@ async fn sync_annotations(
                             } else {
                                 rann.location_end.clone()
                             };
+                            let color = normalize_annotation_color(rann.color.as_deref())
+                                .unwrap_or_else(|| "yellow".to_string());
 
                             let _ = db::save_annotation(
                                 pool,
@@ -699,7 +725,7 @@ async fn sync_annotations(
                                 &val,
                                 &rann.selected_text,
                                 rann.note.as_deref(),
-                                rann.color.as_deref().unwrap_or("#eab308"),
+                                &color,
                                 Some("highlight"),
                                 None,
                                 None,

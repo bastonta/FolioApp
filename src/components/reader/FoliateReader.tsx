@@ -9,6 +9,8 @@ import {
   Bookmark,
   ReaderSettings,
   FootnoteData,
+  getAnnotationColor,
+  getAnnotationColorKey,
 } from '../../types/reader';
 import { Sidebar } from './Sidebar';
 import { HeaderBar } from './HeaderBar';
@@ -937,7 +939,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         const { draw, annotation } = e.detail;
         const { color, style } = annotation;
         const drawFunc = (style && (Overlayer as any)[style]) || Overlayer.highlight;
-        draw(drawFunc, { color: color || '#eab308' });
+        const hexColor = getAnnotationColor(color).hex;
+        draw(drawFunc, { color: hexColor });
       });
 
       view.addEventListener('show-annotation', (e: any) => {
@@ -1235,11 +1238,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     note?: string;
     sectionIndex: number;
   }) => {
+    const colorKey = getAnnotationColorKey(data.color);
     const newAnn: Annotation = {
       id: `ann-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       bookId,
       value: data.value,
-      color: data.color,
+      color: colorKey,
       style: 'highlight',
       text: data.text,
       note: data.note,

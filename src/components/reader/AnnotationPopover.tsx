@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Annotation, ANNOTATION_COLORS } from '../../types/reader';
+import { Annotation, ANNOTATION_COLORS, getAnnotationColorKey } from '../../types/reader';
 import { Copy, Trash2, Check, MessageSquare, MoreHorizontal } from 'lucide-react';
 import { showOriginalContextMenu, isMobileDevice } from '../../services/systemUi';
 
@@ -33,7 +33,7 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
   onSave,
   onDelete,
 }) => {
-  const [selectedColor, setSelectedColor] = useState<string>(ANNOTATION_COLORS.yellow.hex);
+  const [selectedColor, setSelectedColor] = useState<string>('yellow');
   const [showNoteInput, setShowNoteInput] = useState<boolean>(false);
   const [noteText, setNoteText] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
@@ -43,11 +43,11 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
 
   useEffect(() => {
     if (selection?.existingAnnotation) {
-      setSelectedColor(selection.existingAnnotation.color);
+      setSelectedColor(getAnnotationColorKey(selection.existingAnnotation.color));
       setNoteText(selection.existingAnnotation.note || '');
       setShowNoteInput(!!selection.existingAnnotation.note);
     } else {
-      setSelectedColor(ANNOTATION_COLORS.yellow.hex);
+      setSelectedColor('yellow');
       setNoteText('');
       setShowNoteInput(false);
     }
@@ -91,10 +91,11 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
   };
 
   const handleSave = (color = selectedColor) => {
+    const colorKey = getAnnotationColorKey(color);
     onSave({
       value: selection.cfi,
       text: selection.text,
-      color,
+      color: colorKey,
       style: 'highlight',
       note: noteText.trim() || undefined,
       sectionIndex: selection.sectionIndex,
@@ -138,11 +139,11 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
             <button
               key={key}
               type="button"
-              className={`color-dot-btn ${selectedColor === c.hex ? 'active' : ''}`}
+              className={`color-dot-btn ${selectedColor === key ? 'active' : ''}`}
               style={{ backgroundColor: c.hex }}
               onClick={() => {
-                setSelectedColor(c.hex);
-                handleSave(c.hex);
+                setSelectedColor(key);
+                handleSave(key);
               }}
               title={c.label}
               aria-label={c.label}
