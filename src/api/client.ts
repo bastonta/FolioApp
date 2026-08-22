@@ -52,6 +52,37 @@ async function parseErrorBody(res: Response): Promise<ApiError> {
   return { status: res.status, message, data };
 }
 
+// ─── Connection status state ───────────────────────────────────────────────
+
+let isConnectionLost = typeof navigator !== 'undefined' ? !navigator.onLine : false;
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('offline', () => {
+    if (!isConnectionLost) {
+      isConnectionLost = true;
+      window.dispatchEvent(new CustomEvent('folio:connection-lost'));
+    }
+  });
+}
+
+function notifyConnectionRestored() {
+  if (isConnectionLost) {
+    isConnectionLost = false;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('folio:connection-restored'));
+    }
+  }
+}
+
+function notifyConnectionLost() {
+  if (!isConnectionLost) {
+    isConnectionLost = true;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('folio:connection-lost'));
+    }
+  }
+}
+
 // ─── Core fetch wrapper ──────────────────────────────────────────────────
 
 /**
@@ -86,13 +117,9 @@ export async function apiFetch<T = unknown>(
       headers,
       credentials: 'include',
     });
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('folio:connection-restored'));
-    }
+    notifyConnectionRestored();
   } catch (netErr: any) {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('folio:connection-lost'));
-    }
+    notifyConnectionLost();
     throw {
       status: 0,
       message: netErr?.message || 'Network error: server unreachable',
@@ -113,7 +140,9 @@ export async function apiFetch<T = unknown>(
           headers,
           credentials: 'include',
         });
+        notifyConnectionRestored();
       } catch (netErr: any) {
+        notifyConnectionLost();
         throw {
           status: 0,
           message: netErr?.message || 'Network error: server unreachable on retry',

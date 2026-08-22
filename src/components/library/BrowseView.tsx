@@ -190,9 +190,9 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     [settings.createSeriesFolder, getSeriesMap]
   );
 
-  const currentSeries = currentSeriesPath.length > 0
-    ? currentSeriesPath[currentSeriesPath.length - 1]
-    : null;
+  const currentSeriesId = currentSeriesPath.length > 0
+    ? currentSeriesPath[currentSeriesPath.length - 1].id
+    : undefined;
 
   // Fetch browse items
   const fetchBrowseItems = useCallback(async () => {
@@ -200,7 +200,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     setError(null);
     try {
       const params: BrowseParams = {
-        seriesId: currentSeries?.id,
+        seriesId: currentSeriesId,
         search: search.trim() || undefined,
         searchBy,
         sortBy,
@@ -215,6 +215,8 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       // Check which books are already downloaded locally
       if (settings.downloadPath && res.items) {
         const bookItems = res.items.filter((i) => i.type === 'book');
+        const newPaths: Record<string, string> = {};
+        const newStates: Record<string, 'downloading' | 'downloaded' | 'error'> = {};
         for (const book of bookItems) {
           const seriesPath = currentSeriesPath.map((s) => s.name).join('/') || undefined;
           const fileName = `${book.name}.epub`;
@@ -224,9 +226,13 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
             seriesName: settings.createSeriesFolder !== false ? seriesPath : undefined,
           });
           if (existingPath) {
-            setDownloadedPaths((prev) => ({ ...prev, [book.id]: existingPath }));
-            setDownloadStates((prev) => ({ ...prev, [book.id]: 'downloaded' }));
+            newPaths[book.id] = existingPath;
+            newStates[book.id] = 'downloaded';
           }
+        }
+        if (Object.keys(newPaths).length > 0) {
+          setDownloadedPaths((prev) => ({ ...prev, ...newPaths }));
+          setDownloadStates((prev) => ({ ...prev, ...newStates }));
         }
       }
     } catch (err: any) {
@@ -235,7 +241,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [currentSeries, currentSeriesPath, search, searchBy, sortBy, page, settings.downloadPath, settings.createSeriesFolder]);
+  }, [currentSeriesId, currentSeriesPath, search, searchBy, sortBy, page, settings.downloadPath, settings.createSeriesFolder]);
 
   useEffect(() => {
     fetchBrowseItems();
