@@ -39,17 +39,20 @@ export const Modal: React.FC<ModalProps> = ({
         role="dialog"
         aria-modal="true"
       >
+        <div className="modal-drag-handle" />
         {title && (
           <div className="modal-header">
-            <h3 className="modal-title">{title}</h3>
-            <button
-              type="button"
-              className="modal-close-btn"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <X size={18} />
-            </button>
+            <div className="modal-header-title-row">
+              <h3 className="modal-title">{title}</h3>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={onClose}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
         )}
         <div className="modal-body">{children}</div>

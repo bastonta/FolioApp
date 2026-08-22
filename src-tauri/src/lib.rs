@@ -57,6 +57,7 @@ pub fn run() {
             reader_commands::db_save_annotation,
             reader_commands::db_delete_annotation,
             reader_commands::sync_book_data,
+            reader_commands::pull_book_progress,
             reader_commands::sync_all_pending,
         ])
         .run(tauri::generate_context!())

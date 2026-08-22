@@ -46,11 +46,12 @@ export interface RecentBook {
   title: string;
   author: string;
   coverUrl?: string;
+  filePath?: string;
   lastLocation?: string; // CFI
   progressFraction: number;
   lastOpenedAt: string;
-  fileName: string;
-  fileSize: number;
+  fileName?: string;
+  fileSize?: number;
 }
 
 export type ThemeName = 'light' | 'sepia' | 'gray' | 'dark' | 'solarized';

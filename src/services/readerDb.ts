@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Annotation, Bookmark } from '../types/reader';
 import { getServerUrl, getAccessToken } from '../api/tokenManager';
+import { apiGet } from '../api/client';
 import { parseCfiRange, toCfiRange } from '../utils/cfi';
 
 export interface SyncResult {
@@ -9,6 +10,14 @@ export interface SyncResult {
   progressSynced: boolean;
   bookmarksSynced: number;
   annotationsSynced: number;
+}
+
+export interface PullProgressResult {
+  success: boolean;
+  message: string;
+  location?: string;
+  progressPercent?: number;
+  isRead?: boolean;
 }
 
 interface DbBookProgress {
@@ -336,6 +345,63 @@ export async function deleteDbAnnotation(
 }
 
 // ================= SYNC API =================
+
+export async function pullBookProgress(bookId: string): Promise<PullProgressResult | null> {
+  const serverUrl = getServerUrl();
+  if (!serverUrl) return null;
+  const token = getAccessToken();
+
+  if (isTauri()) {
+    try {
+      const res = await invoke<PullProgressResult>('pull_book_progress', {
+        bookId,
+        serverUrl,
+        token: token || null,
+      });
+      return res;
+    } catch (err) {
+      console.warn(`Pull progress invoke failed for ${bookId}:`, err);
+    }
+  }
+
+  // Fallback for Web/WebView or direct REST
+  try {
+    const serverBookId = (await getDbServerBookId(bookId)) || bookId;
+    if (!serverBookId || serverBookId.startsWith('local-')) {
+      return {
+        success: false,
+        message: 'Book is not mapped to server ID',
+      };
+    }
+
+    const res = await apiGet<{ location?: string; progressPercent?: number; isRead?: boolean }>(
+      `/books/${serverBookId}/progress?format=cfi`
+    );
+
+    if (res && res.location) {
+      const percent = res.progressPercent || 0;
+      await saveDbLastLocation(bookId, res.location, percent / 100, res.isRead || false);
+      return {
+        success: true,
+        message: 'Progress successfully fetched from server',
+        location: res.location,
+        progressPercent: percent,
+        isRead: res.isRead,
+      };
+    }
+
+    return {
+      success: false,
+      message: 'No progress found on server',
+    };
+  } catch (err: any) {
+    console.warn(`Pull progress API failed for ${bookId}:`, err);
+    return {
+      success: false,
+      message: err?.message || 'Failed to fetch progress from server',
+    };
+  }
+}
 
 export async function syncBookData(bookId: string): Promise<SyncResult | null> {
   if (!isTauri()) return null;

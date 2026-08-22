@@ -1,6 +1,6 @@
 use crate::auth_proxy::AuthHttpClientState;
 use crate::db::{self, DbAnnotation, DbBookProgress, DbBookmark, DbPool};
-use crate::sync_manager::{self, SyncResult};
+use crate::sync_manager::{self, PullProgressResult, SyncResult};
 use tauri::State;
 
 #[tauri::command]
@@ -145,6 +145,22 @@ pub async fn db_delete_annotation(
     db::delete_annotation(&db, &id_or_value)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn pull_book_progress(
+    book_id: String,
+    server_url: String,
+    token: Option<String>,
+    db: State<'_, DbPool>,
+    auth_state: State<'_, AuthHttpClientState>,
+) -> Result<PullProgressResult, String> {
+    let client = {
+        let auth = auth_state.lock().await;
+        auth.client().clone()
+    };
+
+    sync_manager::pull_book_progress(&db, &client, &server_url, token.as_deref(), &book_id).await
 }
 
 #[tauri::command]

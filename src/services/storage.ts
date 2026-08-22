@@ -248,8 +248,13 @@ export function loadRecentBooks(): RecentBook[] {
   }
 }
 
+export function loadLastOpenedBook(): RecentBook | null {
+  const list = loadRecentBooks();
+  return list.length > 0 ? list[0] : null;
+}
+
 export function saveRecentBook(book: RecentBook): void {
-  const books = loadRecentBooks().filter((b) => b.id !== book.id);
+  const books = loadRecentBooks().filter((b) => b.id !== book.id && (book.filePath ? b.filePath !== book.filePath : true));
   books.unshift(book);
   localStorage.setItem(RECENT_BOOKS_KEY, JSON.stringify(books));
 }

@@ -11,6 +11,7 @@ import {
   BookOpen,
   Pin,
   PinOff,
+  RefreshCw,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,6 +32,8 @@ interface SidebarProps {
   onDeleteBookmark: (id: string) => void;
   onAddCurrentBookmark: () => void;
   onOpenBookInfo: () => void;
+  onSyncProgress?: () => void;
+  isSyncing?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -51,6 +54,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteBookmark,
   onAddCurrentBookmark,
   onOpenBookInfo,
+  onSyncProgress,
+  isSyncing = false,
 }) => {
   if (!isOpen) return null;
 
@@ -82,6 +87,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div className="sidebar-header-actions">
+          {onSyncProgress && (
+            <button
+              type="button"
+              className="sidebar-info-btn sidebar-sync-btn"
+              onClick={onSyncProgress}
+              disabled={isSyncing}
+              title={isSyncing ? 'Syncing progress...' : 'Sync Progress with Server'}
+              aria-label="Sync Progress with Server"
+            >
+              <RefreshCw size={15} className={isSyncing ? 'animate-spin' : ''} />
+            </button>
+          )}
+
           <button
             type="button"
             className="sidebar-info-btn"

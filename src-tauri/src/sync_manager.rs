@@ -15,6 +15,16 @@ pub struct SyncResult {
     pub annotations_synced: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullProgressResult {
+    pub success: bool,
+    pub message: String,
+    pub location: Option<String>,
+    pub progress_percent: Option<f32>,
+    pub is_read: Option<bool>,
+}
+
 // Server payload types
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -204,6 +214,83 @@ pub async fn sync_book(
 }
 
 // ---------------- PROGRESS SYNC ----------------
+pub async fn pull_book_progress(
+    pool: &DbPool,
+    client: &reqwest::Client,
+    server_url: &str,
+    token: Option<&str>,
+    book_id: &str,
+) -> Result<PullProgressResult, String> {
+    let base = server_url.trim_end_matches('/');
+    if base.is_empty() {
+        return Err("Server URL is empty".to_string());
+    }
+
+    let headers = build_headers(token);
+
+    // Resolve real server Folio UUID
+    let server_id = match resolve_server_book_id(pool, client, base, &headers, book_id).await {
+        Some(id) => id,
+        None => {
+            return Ok(PullProgressResult {
+                success: false,
+                message: format!("Book '{book_id}' is not linked to any server Folio ID."),
+                location: None,
+                progress_percent: None,
+                is_read: None,
+            });
+        }
+    };
+
+    let url = format!("{base}/api/books/{server_id}/progress?format=cfi");
+    let res = client
+        .get(&url)
+        .headers(headers.clone())
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch server progress: {e}"))?;
+
+    if res.status().is_success() {
+        if let Ok(remote) = res.json::<ServerProgressResponse>().await {
+            if let Some(loc) = remote.location {
+                let percent = remote.progress_percent.unwrap_or(0.0);
+                let is_read = remote.is_read.unwrap_or(false);
+
+                // Force save to local SQLite database with sync_status = 'synced'
+                let _ = db::save_progress(pool, book_id, &loc, percent, is_read, false).await;
+                if server_id != book_id {
+                    let _ = db::save_progress(pool, &server_id, &loc, percent, is_read, false).await;
+                }
+
+                return Ok(PullProgressResult {
+                    success: true,
+                    message: "Progress successfully fetched from server".to_string(),
+                    location: Some(loc),
+                    progress_percent: Some(percent),
+                    is_read: Some(is_read),
+                });
+            }
+        }
+        return Ok(PullProgressResult {
+            success: false,
+            message: "No reading progress recorded on server for this book".to_string(),
+            location: None,
+            progress_percent: None,
+            is_read: None,
+        });
+    } else if res.status().as_u16() == 404 {
+        return Ok(PullProgressResult {
+            success: false,
+            message: "No progress found on server".to_string(),
+            location: None,
+            progress_percent: None,
+            is_read: None,
+        });
+    } else {
+        return Err(format!("Server returned error status {}", res.status()));
+    }
+}
+
 async fn sync_progress(
     pool: &DbPool,
     client: &reqwest::Client,
@@ -216,7 +303,7 @@ async fn sync_progress(
         .await
         .map_err(|e| e.to_string())?;
 
-    // 1. Push if pending
+    // 1. Push if pending and not just unread 0%
     if let Some(p) = &local
         && p.sync_status == "pending" {
             let url = format!("{base_url}/api/books/{server_book_id}/progress?format=cfi");
@@ -251,22 +338,35 @@ async fn sync_progress(
         && r.status().is_success()
             && let Ok(remote) = r.json::<ServerProgressResponse>().await
                 && let Some(loc) = remote.location {
-                    // Only overwrite local if local is not currently pending
                     let current_local = db::get_progress(pool, local_book_id).await.ok().flatten();
                     let is_pending = current_local
                         .as_ref()
                         .map(|p| p.sync_status == "pending")
                         .unwrap_or(false);
-                    if !is_pending {
+                    // If not pending, or if local is at 0% while remote is further ahead, update local
+                    let local_percent = current_local.as_ref().map(|p| p.progress_percent).unwrap_or(0.0);
+                    let remote_percent = remote.progress_percent.unwrap_or(0.0);
+                    if !is_pending || (local_percent <= 0.01 && remote_percent > 0.0) {
                         let _ = db::save_progress(
                             pool,
                             local_book_id,
                             &loc,
-                            remote.progress_percent.unwrap_or(0.0),
+                            remote_percent,
                             remote.is_read.unwrap_or(false),
                             false,
                         )
                         .await;
+                        if server_book_id != local_book_id {
+                            let _ = db::save_progress(
+                                pool,
+                                server_book_id,
+                                &loc,
+                                remote_percent,
+                                remote.is_read.unwrap_or(false),
+                                false,
+                            )
+                            .await;
+                        }
                     }
                     return Ok(true);
                 }

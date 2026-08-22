@@ -28,10 +28,12 @@ import {
   formatLanguageMap,
   formatContributor,
   loadLastLocation,
+  loadRecentBooks,
 } from '../../services/storage';
 import { LocalBookFile } from '../../types/browse';
-import { ReaderSettings } from '../../types/reader';
+import { ReaderSettings, RecentBook } from '../../types/reader';
 import { FolderStackCover } from './FolderStackCover';
+import { pullBookProgress } from '../../services/readerDb';
 
 interface LibraryViewProps {
   settings: ReaderSettings;
@@ -55,7 +57,33 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [currentFolderPath, setCurrentFolderPath] = useState<string[]>([]);
   const [hasPermission, setHasPermission] = useState(true);
+  const [recentBooks, setRecentBooks] = useState<RecentBook[]>(() => loadRecentBooks().slice(0, 3));
   const isMobile = isMobileDevice();
+
+  useEffect(() => {
+    const list = loadRecentBooks().slice(0, 3);
+    setRecentBooks(list);
+
+    // Concurrently fetch latest server progress for all up to 3 recent books
+    list.forEach((book) => {
+      if (book.id) {
+        pullBookProgress(book.id)
+          .then((res) => {
+            if (res?.success && res.location) {
+              const frac = (res.progressPercent || 0) / 100;
+              setRecentBooks((prev) =>
+                prev.map((b) =>
+                  b.id === book.id && Math.abs((b.progressFraction || 0) - frac) > 0.005
+                    ? { ...b, progressFraction: frac }
+                    : b
+                )
+              );
+            }
+          })
+          .catch(console.warn);
+      }
+    });
+  }, [localBooks]);
 
   // View mode: 'grid' | 'list'
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
@@ -223,6 +251,37 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     }
   };
 
+  // Quick Resume a Recent Book
+  const handleResumeBook = useCallback((book: RecentBook) => {
+    if (!book) return;
+    const match = localBooks.find(
+      (b) => b.id === book.id || (book.filePath && b.filePath === book.filePath)
+    );
+    if (match) {
+      onOpenLocalBook(match, metaCache[match.id] || {
+        title: book.title,
+        author: book.author,
+        coverUrl: book.coverUrl,
+      });
+      return;
+    }
+
+    if (book.filePath) {
+      const bookFile: LocalBookFile = {
+        id: book.id,
+        filePath: book.filePath,
+        fileName: book.fileName || book.filePath.split(/[\\/]/).pop() || 'book.epub',
+        relativePath: '',
+        fileSize: book.fileSize || 0,
+      };
+      onOpenLocalBook(bookFile, {
+        title: book.title,
+        author: book.author,
+        coverUrl: book.coverUrl,
+      });
+    }
+  }, [localBooks, metaCache, onOpenLocalBook]);
+
   // Group books & subfolders by current navigation level
   const { currentLevelBooks, directSubfolderNames, directSubfolderMap, allNestedCount } = useMemo(() => {
     const subMap = new Map<string, LocalBookFile[]>();
@@ -285,15 +344,28 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         </div>
 
         <div className="library-header-actions">
+          {/* Quick Resume Last Read Book */}
+          {recentBooks.length > 0 && (
+            <button
+              type="button"
+              className="library-open-btn library-resume-header-btn"
+              onClick={() => handleResumeBook(recentBooks[0])}
+              title={`Continue reading "${recentBooks[0].title}" (${Math.round((recentBooks[0].progressFraction || 0) * 100)}%)`}
+            >
+              <BookOpen size={16} />
+              <span className="library-open-btn-text">Continue Reading</span>
+            </button>
+          )}
+
           {/* Browse Folio Online Library */}
           <button
             type="button"
-            className="library-open-btn"
+            className="library-open-btn library-catalog-btn"
             onClick={onOpenBrowse}
             title="Folio Catalog (Online Library)"
           >
             <Globe size={17} />
-            <span className="library-open-btn-text">Folio Catalog</span>
+            <span className="library-open-btn-text">Catalog</span>
           </button>
 
           {/* Refresh Folder */}
@@ -488,6 +560,95 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Continue Reading Section (up to 3 books) */}
+        {recentBooks.length > 0 && !isSearching && currentFolderPath.length === 0 && (
+          <div className="continue-reading-container">
+            <div className="continue-reading-section-header">
+              <div className="continue-reading-tag">
+                <Clock size={13} />
+                <span>CONTINUE READING</span>
+              </div>
+              {recentBooks.length > 1 && (
+                <span className="continue-reading-count-badge">
+                  {recentBooks.length} books
+                </span>
+              )}
+            </div>
+
+            <div className={`continue-reading-cards-wrap count-${recentBooks.length}`}>
+              {recentBooks.map((book) => {
+                const pct = Math.round((book.progressFraction || 0) * 100);
+                const cover = book.coverUrl || metaCache[book.id]?.coverUrl;
+                return (
+                  <div
+                    key={book.id}
+                    className="continue-reading-card"
+                    onClick={() => handleResumeBook(book)}
+                    title={`Continue reading "${book.title}" (${pct}%)`}
+                  >
+                    <div className="continue-reading-cover-wrap">
+                      {cover ? (
+                        <img
+                          src={cover}
+                          alt={book.title}
+                          className="continue-reading-cover"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <div className="continue-reading-placeholder">
+                          <BookOpen size={24} />
+                        </div>
+                      )}
+                      {pct > 0 && (
+                        <span className="continue-reading-badge">{pct}%</span>
+                      )}
+                    </div>
+
+                    <div className="continue-reading-info">
+                      <h4 className="continue-reading-title" title={book.title}>
+                        {book.title}
+                      </h4>
+                      <p className="continue-reading-author" title={book.author}>
+                        {book.author}
+                      </p>
+
+                      <div className="continue-reading-progress-row">
+                        <div className="continue-reading-progress-track">
+                          <div
+                            className="continue-reading-progress-bar"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className="continue-reading-pct">{pct}%</span>
+                      </div>
+                    </div>
+
+                    {recentBooks.length === 1 && (
+                      <div className="continue-reading-action">
+                        <button
+                          type="button"
+                          className="continue-reading-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleResumeBook(book);
+                          }}
+                          title="Continue reading"
+                          aria-label="Continue reading"
+                        >
+                          <span>Resume</span>
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

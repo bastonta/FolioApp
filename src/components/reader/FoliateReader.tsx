@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import '../../foliate-js/view.js';
 import { Overlayer } from '../../foliate-js/overlayer.js';
+import { RefreshCw } from 'lucide-react';
 import {
   BookMetadata,
   TOCItem,
@@ -34,6 +35,7 @@ import {
   saveDbAnnotation,
   deleteDbAnnotation,
   syncBookData,
+  pullBookProgress,
 } from '../../services/readerDb';
 
 interface FoliateReaderProps {
@@ -284,7 +286,65 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBookInfoOpen, setIsBookInfoOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncToast, setSyncToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const isInitialLoadRef = useRef(true);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
+
+  const showSyncToast = useCallback(
+    (message: string, type: 'info' | 'success' | 'error' = 'info') => {
+      setSyncToast({ message, type });
+      setSyncMessage(message);
+      setTimeout(() => {
+        setSyncToast((prev) => (prev?.message === message ? null : prev));
+      }, 3500);
+    },
+    []
+  );
+
+  const handleSyncProgress = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const [progressResult, syncResult] = await Promise.all([
+        pullBookProgress(bookId),
+        syncBookData(bookId),
+      ]);
+
+      if (progressResult?.success && progressResult.location) {
+        const pct = Math.round(progressResult.progressPercent || 0);
+        if (viewRef.current) {
+          await viewRef.current.goTo(progressResult.location);
+        }
+        showSyncToast(`Progress downloaded from server: ${pct}%`, 'success');
+      } else if (progressResult?.message) {
+        showSyncToast(progressResult.message, progressResult.success ? 'success' : 'info');
+      } else {
+        showSyncToast('Book progress is up to date', 'info');
+      }
+
+      // Refresh annotations & bookmarks if synced
+      if (syncResult && (syncResult.bookmarksSynced > 0 || syncResult.annotationsSynced > 0)) {
+        const [syncedAnns, syncedBms] = await Promise.all([
+          loadDbAnnotations(bookId),
+          loadDbBookmarks(bookId),
+        ]);
+        updateAnnotations(syncedAnns);
+        updateBookmarks(syncedBms);
+        if (viewRef.current) {
+          for (const ann of syncedAnns) {
+            viewRef.current.addAnnotation(ann);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to sync progress:', err);
+      showSyncToast(`Sync failed: ${err?.message || err}`, 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [bookId, isSyncing, showSyncToast, updateAnnotations, updateBookmarks]);
 
   // Refs for tracking active modal/hover state inside timer callbacks
   const isSettingsOpenRef = useRef(isSettingsOpen);
@@ -466,7 +526,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         if (detail.cfi) {
           setCurrentCFI(detail.cfi);
           saveLastLocation(bookId, detail.cfi, fraction);
-          saveDbLastLocation(bookId, detail.cfi, fraction);
+          if (!isInitialLoadRef.current) {
+            saveDbLastLocation(bookId, detail.cfi, fraction);
+          }
         }
 
         if (detail.tocItem) {
@@ -1007,13 +1069,18 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
         // Restore saved location or text start
         const savedLoc = await loadDbLastLocation(bookId);
+
         if (savedLoc?.cfi) {
           await view.goTo(savedLoc.cfi);
-        } else if (savedLoc?.fraction != null) {
+        } else if (savedLoc?.fraction != null && savedLoc.fraction > 0) {
           await view.goToFraction(savedLoc.fraction);
         } else {
           await view.init({ showTextStart: true });
         }
+
+        setTimeout(() => {
+          isInitialLoadRef.current = false;
+        }, 800);
 
         if (viewRef.current) {
           for (const ann of loadedAnns) {
@@ -1021,7 +1088,26 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           }
         }
 
-        // Trigger background sync with server
+        // Always automatically pull latest progress from server on open
+        pullBookProgress(bookId)
+          .then(async (remoteProgress) => {
+            if (remoteProgress?.success && remoteProgress.location) {
+              const remoteLoc = remoteProgress.location;
+              const remotePct = Math.round(remoteProgress.progressPercent || 0);
+
+              if (remoteLoc !== savedLoc?.cfi) {
+                if (viewRef.current) {
+                  await viewRef.current.goTo(remoteLoc);
+                  showSyncToast(`Synced latest progress from server: ${remotePct}%`, 'success');
+                }
+              }
+            }
+          })
+          .catch((err) => {
+            console.warn('Auto progress fetch on book open failed:', err);
+          });
+
+        // Trigger background sync for bookmarks and annotations
         syncBookData(bookId)
           .then(async (res) => {
             if (
@@ -1303,6 +1389,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           onDeleteBookmark={handleDeleteBookmark}
           onAddCurrentBookmark={handleAddCurrentBookmark}
           onOpenBookInfo={() => setIsBookInfoOpen(true)}
+          onSyncProgress={handleSyncProgress}
+          isSyncing={isSyncing}
         />
 
         {/* Reader Canvas Area */}
@@ -1439,7 +1527,20 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         isOpen={isBookInfoOpen}
         onClose={() => setIsBookInfoOpen(false)}
         metadata={metadata}
+        progressPercent={progressFraction * 100}
+        currentChapter={chapterTitle}
+        onSyncProgress={handleSyncProgress}
+        isSyncing={isSyncing}
+        syncMessage={syncMessage}
       />
+
+      {/* Sync Toast Notification */}
+      {syncToast && (
+        <div className={`reader-toast-notification toast-${syncToast.type || 'info'}`}>
+          <RefreshCw size={15} className={isSyncing ? 'animate-spin' : ''} />
+          <span>{syncToast.message}</span>
+        </div>
+      )}
     </div>
   );
 };

@@ -14,6 +14,8 @@ import {
   storeBookCover,
   blobToThumbnailDataUrl,
   saveLocalBookCache,
+  saveRecentBook,
+  loadLastLocation,
 } from './services/storage';
 import { fileManager } from './services/fileManager';
 import { setStatusBarVisible, setStatusBarTheme } from './services/systemUi';
@@ -170,6 +172,19 @@ function AppRoutes() {
         saveDbBookMapping(book.id, '', filePath).catch(console.warn);
       });
 
+      const lastLoc = loadLastLocation(book.id);
+      saveRecentBook({
+        id: book.id,
+        title,
+        author,
+        coverUrl: cachedMeta?.coverUrl,
+        filePath,
+        progressFraction: lastLoc?.fraction || 0,
+        lastOpenedAt: new Date().toISOString(),
+        fileName,
+        fileSize: book.fileSize,
+      });
+
       setActiveBook({
         id: book.id,
         source: file,
@@ -199,6 +214,17 @@ function AppRoutes() {
           saveDbBookMapping(bookId, serverBookId, filePath).catch(console.warn);
         });
       }
+
+      const lastLoc = loadLastLocation(bookId);
+      saveRecentBook({
+        id: bookId,
+        title: title || fileName.replace(/\.[^/.]+$/, ''),
+        author: author || 'Unknown Author',
+        filePath,
+        progressFraction: lastLoc?.fraction || 0,
+        lastOpenedAt: new Date().toISOString(),
+        fileName,
+      });
 
       setActiveBook({
         id: bookId,
