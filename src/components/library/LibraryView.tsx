@@ -17,9 +17,11 @@ import {
   ChevronRight,
   ArrowLeft,
   X,
+  WifiOff,
 } from 'lucide-react';
 import { fileManager } from '../../services/fileManager';
 import { isMobileDevice } from '../../services/systemUi';
+import { useAuth } from '../../context/AuthContext';
 import {
   loadLocalBooksCache,
   saveLocalBookCache,
@@ -53,6 +55,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onOpenProfile,
   onUpdateSettings,
 }) => {
+  const { isOffline, checkOnlineStatus } = useAuth();
   const [localBooks, setLocalBooks] = useState<LocalBookFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -65,7 +68,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   useBackHandler(() => { setCurrentFolderPath((prev) => prev.slice(0, -1)); return true; }, currentFolderPath.length > 0, 40);
   useBackHandler(() => { setSearchQuery(''); return true; }, Boolean(searchQuery), 30);
 
-  useEffect(() => {
+  const refreshRecentProgress = useCallback(() => {
     const list = loadRecentBooks().slice(0, 3);
     setRecentBooks(list);
 
@@ -88,7 +91,24 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           .catch(console.warn);
       }
     });
-  }, [localBooks]);
+  }, []);
+
+  useEffect(() => {
+    refreshRecentProgress();
+  }, [localBooks, refreshRecentProgress]);
+
+  // Re-fetch recent books progress when device reconnects
+  useEffect(() => {
+    const handleOnline = () => {
+      refreshRecentProgress();
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('folio:connection-restored', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('folio:connection-restored', handleOnline);
+    };
+  }, [refreshRecentProgress]);
 
   // View mode: 'grid' | 'list'
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
@@ -144,6 +164,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       setIsLoading(false);
     }
   }, [settings.downloadPath]);
+
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([
+      scanFolder(),
+      checkOnlineStatus().catch(() => false),
+    ]);
+    refreshRecentProgress();
+  }, [scanFolder, checkOnlineStatus, refreshRecentProgress]);
 
   useEffect(() => {
     scanFolder();
@@ -343,7 +371,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             <BookOpen size={24} />
           </div>
           <div>
-            <h1 className="library-title">Folio</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <h1 className="library-title">Folio</h1>
+              {isOffline && (
+                <span className="library-offline-badge" title="No internet connection. Operating in offline mode.">
+                  <WifiOff size={11} />
+                  Offline
+                </span>
+              )}
+            </div>
             <p className="library-subtitle">My Library</p>
           </div>
         </div>
@@ -373,12 +409,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             <span className="library-open-btn-text">Catalog</span>
           </button>
 
-          {/* Refresh Folder */}
+          {/* Refresh Folder & Connectivity */}
           <button
             type="button"
             className="header-icon-btn"
-            onClick={scanFolder}
-            title="Refresh books list"
+            onClick={handleRefresh}
+            title="Refresh books list & sync"
           >
             <RefreshCw size={17} className={isLoading ? 'animate-spin' : ''} />
           </button>

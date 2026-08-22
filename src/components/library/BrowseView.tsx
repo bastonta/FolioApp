@@ -16,13 +16,15 @@ import {
   CheckCircle2,
   LayoutGrid,
   List as ListIcon,
+  WifiOff,
 } from 'lucide-react';
 import { libraryApi, BrowseParams } from '../../api/libraryApi';
 import { fileManager } from '../../services/fileManager';
-import { getAccessToken, getServerUrl } from '../../api/tokenManager';
+import { getAccessToken, getServerUrl, isNetworkError } from '../../api/tokenManager';
 import { BrowseItem } from '../../types/browse';
 import { ReaderSettings } from '../../types/reader';
 import { useBackHandler } from '../../services/backHandler';
+import { useAuth } from '../../context/AuthContext';
 
 interface BrowseViewProps {
   settings: ReaderSettings;
@@ -39,6 +41,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   onBookDownloaded,
   onUpdateSettings,
 }) => {
+  const { isOffline, checkOnlineStatus } = useAuth();
   // Navigation & Folder path
   const [currentSeriesPath, setCurrentSeriesPath] = useState<
     Array<{ id: string; name: string }>
@@ -237,6 +240,24 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   useEffect(() => {
     fetchBrowseItems();
   }, [fetchBrowseItems]);
+
+  // Automatically refresh catalog when coming back online
+  useEffect(() => {
+    const handleOnline = () => {
+      fetchBrowseItems();
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('folio:connection-restored', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('folio:connection-restored', handleOnline);
+    };
+  }, [fetchBrowseItems]);
+
+  const handleTryAgain = async () => {
+    await checkOnlineStatus();
+    fetchBrowseItems();
+  };
 
   // Handle folder navigation
   const handleOpenFolder = (item: BrowseItem) => {
@@ -540,10 +561,28 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
             <Loader2 size={32} className="animate-spin" style={{ color: 'var(--accent-color)' }} />
             <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading catalog from server...</p>
           </div>
+        ) : isOffline || (error && isNetworkError(error)) ? (
+          <div className="library-empty-box" style={{ borderColor: 'rgba(234, 179, 8, 0.4)', padding: '36px 20px' }}>
+            <WifiOff size={36} style={{ color: '#eab308', marginBottom: 8 }} />
+            <p style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
+              Offline Mode
+            </p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, maxWidth: 380, margin: '0 auto 16px', lineHeight: 1.5 }}>
+              The online catalog is unavailable without an internet connection. You can read all downloaded books in your library.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button type="button" className="auth-btn-secondary" onClick={onBackToLocalLibrary}>
+                Back to My Library
+              </button>
+              <button type="button" className="auth-btn-primary" onClick={handleTryAgain}>
+                Try Again
+              </button>
+            </div>
+          </div>
         ) : error ? (
           <div className="library-empty-box" style={{ borderColor: 'var(--danger-color)' }}>
             <p style={{ color: 'var(--danger-color)', fontWeight: 600 }}>{error}</p>
-            <button type="button" className="auth-btn-primary" onClick={fetchBrowseItems} style={{ marginTop: 8 }}>
+            <button type="button" className="auth-btn-primary" onClick={handleTryAgain} style={{ marginTop: 8 }}>
               Try Again
             </button>
           </div>

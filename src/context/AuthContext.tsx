@@ -7,8 +7,12 @@ import {
   setAccessToken,
   getServerUrl,
   setServerUrl as persistServerUrl,
+  getCachedUser,
+  setCachedUser,
   clearTokens,
+  isNetworkError,
 } from '../api/tokenManager';
+import { syncAllPending } from '../services/readerDb';
 
 // ─── Context shape ───────────────────────────────────────────────────────
 
@@ -17,7 +21,9 @@ interface AuthContextType {
   serverUrl: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isOffline: boolean;
 
+  checkOnlineStatus: () => Promise<boolean>;
   login: (email: string, password: string) => Promise<LoginResponse>;
   login2fa: (
     userId: string,
@@ -44,21 +50,88 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [serverUrl, setServerUrlState] = useState<string | null>(
-    getServerUrl,
-  );
+  const [user, setUser] = useState<User | null>(() => getCachedUser());
+  const [serverUrl, setServerUrlState] = useState<string | null>(getServerUrl);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(
+    typeof navigator !== 'undefined' ? !navigator.onLine : false,
+  );
 
-  // ── Fetch profile (validates token) ──────────────────────────────────
+  // ── Fetch profile (validates token and caches user) ──────────────────
 
   const fetchProfile = useCallback(async () => {
     try {
       const data = await profileApi.getProfile();
       setUser(data);
-    } catch {
-      setUser(null);
-      clearTokens();
+      setCachedUser(data);
+      setIsOffline(false);
+      return data;
+    } catch (err: any) {
+      if (isNetworkError(err) || err?.status === 0) {
+        setIsOffline(true);
+        // Do NOT clear tokens or kick user out when offline
+        const cached = getCachedUser();
+        if (cached) {
+          setUser(cached);
+        } else if (getAccessToken()) {
+          // If no cached profile existed yet, provide fallback offline user
+          const fallbackUser: User = {
+            userId: 'offline-user',
+            name: 'Reader (Offline)',
+            email: '',
+            twoFactorEnabled: false,
+            emailConfirmed: true,
+          };
+          setUser(fallbackUser);
+          setCachedUser(fallbackUser);
+        }
+      } else if (err?.status === 401) {
+        // Genuine 401: session is permanently expired or invalidated
+        setUser(null);
+        clearTokens();
+      } else {
+        // Other errors (e.g. 500), keep cached session
+        const cached = getCachedUser();
+        if (cached) {
+          setUser(cached);
+        }
+      }
+      return null;
+    }
+  }, []);
+
+  // ── Active online status checker ─────────────────────────────────────
+
+  const checkOnlineStatus = useCallback(async (): Promise<boolean> => {
+    const token = getAccessToken();
+    const url = getServerUrl();
+    if (!url || !token) {
+      return false;
+    }
+
+    try {
+      const data = await profileApi.getProfile();
+      if (data) {
+        setUser(data);
+        setCachedUser(data);
+        setIsOffline(false);
+        // Sync pending changes in background
+        syncAllPending().catch((e) =>
+          console.warn('Sync on checkOnlineStatus failed:', e),
+        );
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      if (err?.status === 401) {
+        setUser(null);
+        clearTokens();
+        return false;
+      }
+      if (isNetworkError(err) || err?.status === 0) {
+        setIsOffline(true);
+      }
+      return false;
     }
   }, []);
 
@@ -68,13 +141,99 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const bootstrap = async () => {
       const url = getServerUrl();
       const token = getAccessToken();
+      const cached = getCachedUser();
+
       if (url && token) {
+        if (cached) {
+          setUser(cached);
+        }
         await fetchProfile();
       }
       setIsLoading(false);
     };
     bootstrap();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchProfile]);
+
+  // ── Active background probe when offline ─────────────────────────────
+
+  useEffect(() => {
+    if (!isOffline) return;
+
+    // Probe server every 5 seconds while offline to automatically recover
+    const interval = setInterval(async () => {
+      const token = getAccessToken();
+      const url = getServerUrl();
+      if (!url || !token) return;
+
+      try {
+        const data = await profileApi.getProfile();
+        if (data) {
+          setUser(data);
+          setCachedUser(data);
+          setIsOffline(false);
+          syncAllPending().catch(console.warn);
+        }
+      } catch (err: any) {
+        if (err?.status === 401) {
+          setUser(null);
+          clearTokens();
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [isOffline]);
+
+  // ── Listen for network online/offline, window focus & custom events ──
+
+  useEffect(() => {
+    const triggerOnlineRecovery = async () => {
+      const token = getAccessToken();
+      const url = getServerUrl();
+      if (url && token) {
+        await checkOnlineStatus();
+      }
+    };
+
+    const handleConnectionRestored = () => {
+      setIsOffline(false);
+      const token = getAccessToken();
+      const url = getServerUrl();
+      if (url && token) {
+        syncAllPending().catch(console.warn);
+      }
+    };
+
+    const handleConnectionLost = () => {
+      setIsOffline(true);
+    };
+
+    const handleWindowFocus = () => {
+      triggerOnlineRecovery();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerOnlineRecovery();
+      }
+    };
+
+    window.addEventListener('online', triggerOnlineRecovery);
+    window.addEventListener('offline', handleConnectionLost);
+    window.addEventListener('folio:connection-restored', handleConnectionRestored);
+    window.addEventListener('folio:connection-lost', handleConnectionLost);
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('online', triggerOnlineRecovery);
+      window.removeEventListener('offline', handleConnectionLost);
+      window.removeEventListener('folio:connection-restored', handleConnectionRestored);
+      window.removeEventListener('folio:connection-lost', handleConnectionLost);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [checkOnlineStatus]);
 
   // ── Listen for session-expired events from the HTTP client ───────────
 
@@ -163,6 +322,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         serverUrl,
         isAuthenticated: !!user,
         isLoading,
+        isOffline,
+        checkOnlineStatus,
         login,
         login2fa,
         register,

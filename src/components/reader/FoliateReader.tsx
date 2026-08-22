@@ -390,6 +390,19 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     }
   }, [bookId, isSyncing, showSyncToast, updateAnnotations, updateBookmarks]);
 
+  // Automatically sync book when reconnecting online
+  useEffect(() => {
+    const handleOnline = () => {
+      syncBookData(bookId).catch(console.warn);
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('folio:connection-restored', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('folio:connection-restored', handleOnline);
+    };
+  }, [bookId]);
+
   // Refs for tracking active modal/hover state inside timer callbacks
   const isSettingsOpenRef = useRef(isSettingsOpen);
   useEffect(() => {

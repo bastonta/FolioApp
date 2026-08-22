@@ -79,11 +79,26 @@ export async function apiFetch<T = unknown>(
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const res = await fetch(url, {
-    ...init,
-    headers,
-    credentials: 'include',
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers,
+      credentials: 'include',
+    });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('folio:connection-restored'));
+    }
+  } catch (netErr: any) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('folio:connection-lost'));
+    }
+    throw {
+      status: 0,
+      message: netErr?.message || 'Network error: server unreachable',
+      data: netErr,
+    } as ApiError;
+  }
 
   // ── Handle 401 with automatic token refresh ────────────────────────
   if (res.status === 401 && !_retry && !isAuthPath(path)) {
@@ -91,13 +106,26 @@ export async function apiFetch<T = unknown>(
       const newToken = await refreshAccessToken();
       // Retry with fresh token
       headers.set('Authorization', `Bearer ${newToken}`);
-      const retryRes = await fetch(url, {
-        ...init,
-        headers,
-        credentials: 'include',
-      });
+      let retryRes: Response;
+      try {
+        retryRes = await fetch(url, {
+          ...init,
+          headers,
+          credentials: 'include',
+        });
+      } catch (netErr: any) {
+        throw {
+          status: 0,
+          message: netErr?.message || 'Network error: server unreachable on retry',
+          data: netErr,
+        } as ApiError;
+      }
 
       if (!retryRes.ok) {
+        if (retryRes.status === 401) {
+          clearTokens();
+          window.dispatchEvent(new CustomEvent('folio:session-expired'));
+        }
         throw await parseErrorBody(retryRes);
       }
 
@@ -107,15 +135,36 @@ export async function apiFetch<T = unknown>(
         return undefined as T;
       }
       return retryRes.json() as Promise<T>;
-    } catch {
-      // Refresh failed — force logout
-      clearTokens();
-      window.dispatchEvent(new CustomEvent('folio:session-expired'));
-      throw { status: 401, message: 'Session expired' } as ApiError;
+    } catch (refreshErr: any) {
+      const isNetErr =
+        refreshErr?.status === 0 ||
+        (typeof refreshErr === 'string' &&
+          (refreshErr.includes('Network error') ||
+            refreshErr.includes('Failed to fetch'))) ||
+        refreshErr?.message?.includes('Network error') ||
+        refreshErr?.message?.includes('Failed to fetch') ||
+        (typeof navigator !== 'undefined' && !navigator.onLine);
+
+      if (!isNetErr) {
+        // Refresh genuinely failed due to invalid/expired session — force logout
+        clearTokens();
+        window.dispatchEvent(new CustomEvent('folio:session-expired'));
+        throw { status: 401, message: 'Session expired' } as ApiError;
+      }
+
+      throw {
+        status: 0,
+        message: 'Network error: session refresh deferred while offline',
+        data: refreshErr,
+      } as ApiError;
     }
   }
 
   if (!res.ok) {
+    if (res.status === 401 && !isAuthPath(path)) {
+      clearTokens();
+      window.dispatchEvent(new CustomEvent('folio:session-expired'));
+    }
     throw await parseErrorBody(res);
   }
 
