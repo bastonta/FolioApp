@@ -261,8 +261,14 @@ export class View extends HTMLElement {
         this.renderer.setAttribute('exportparts', 'head,foot,filter')
         this.renderer.addEventListener('load', e => this.#onLoad(e.detail))
         this.renderer.addEventListener('relocate', e => this.#onRelocate(e.detail))
-        this.renderer.addEventListener('create-overlayer', e =>
-            e.detail.attach(this.#createOverlayer(e.detail)))
+        this.renderer.addEventListener('create-overlayer', e => {
+            const overlayer = this.#createOverlayer(e.detail)
+            e.detail.attach(overlayer)
+            const { index } = e.detail
+            const list = this.#searchResults.get(index)
+            if (list) for (const item of list) this.addAnnotation(item)
+            this.#emit('create-overlay', { index })
+        })
         this.renderer.open(book)
         this.#root.append(this.renderer)
 
@@ -366,35 +372,44 @@ export class View extends HTMLElement {
         })
     }
     async addAnnotation(annotation, remove) {
-        const { value } = annotation
-        if (value.startsWith(SEARCH_PREFIX)) {
-            const cfi = value.replace(SEARCH_PREFIX, '')
-            const { index, anchor } = await this.resolveNavigation(cfi)
+        try {
+            const { value } = annotation
+            if (!value) return
+            if (value.startsWith(SEARCH_PREFIX)) {
+                const cfi = value.replace(SEARCH_PREFIX, '')
+                const resolved = await this.resolveNavigation(cfi)
+                if (!resolved) return
+                const { index, anchor } = resolved
+                const obj = this.#getOverlayer(index)
+                if (obj) {
+                    const { overlayer, doc } = obj
+                    if (remove) {
+                        overlayer.remove(value)
+                        return
+                    }
+                    const range = doc ? anchor(doc) : anchor
+                    overlayer.add(value, range, this.#searchDraw, this.#searchDrawOptions)
+                }
+                return
+            }
+            const resolved = await this.resolveNavigation(value)
+            if (!resolved) return
+            const { index, anchor } = resolved
             const obj = this.#getOverlayer(index)
             if (obj) {
                 const { overlayer, doc } = obj
-                if (remove) {
-                    overlayer.remove(value)
-                    return
+                overlayer.remove(value)
+                if (!remove) {
+                    const range = doc ? anchor(doc) : anchor
+                    const draw = (func, opts) => overlayer.add(value, range, func, opts)
+                    this.#emit('draw-annotation', { draw, annotation, doc, range })
                 }
-                const range = doc ? anchor(doc) : anchor
-                overlayer.add(value, range, this.#searchDraw, this.#searchDrawOptions)
             }
-            return
+            const label = this.#tocProgress?.getProgress?.(index)?.label ?? ''
+            return { index, label }
+        } catch (e) {
+            console.warn('Failed to add annotation:', annotation, e)
         }
-        const { index, anchor } = await this.resolveNavigation(value)
-        const obj = this.#getOverlayer(index)
-        if (obj) {
-            const { overlayer, doc } = obj
-            overlayer.remove(value)
-            if (!remove) {
-                const range = doc ? anchor(doc) : anchor
-                const draw = (func, opts) => overlayer.add(value, range, func, opts)
-                this.#emit('draw-annotation', { draw, annotation, doc, range })
-            }
-        }
-        const label = this.#tocProgress.getProgress(index)?.label ?? ''
-        return { index, label }
     }
     deleteAnnotation(annotation) {
         return this.addAnnotation(annotation, true)
@@ -411,21 +426,25 @@ export class View extends HTMLElement {
                 this.#emit('show-annotation', { value, index, range })
             }
         }, false)
-
-        const list = this.#searchResults.get(index)
-        if (list) for (const item of list) this.addAnnotation(item)
-
-        this.#emit('create-overlay', { index })
         return overlayer
     }
     async showAnnotation(annotation) {
-        const { value } = annotation
-        const resolved = await this.goTo(value)
-        if (resolved) {
-            const { index, anchor } = resolved
-            const { doc } =  this.#getOverlayer(index)
-            const range = anchor(doc)
-            this.#emit('show-annotation', { value, index, range })
+        try {
+            const { value } = annotation
+            if (!value) return
+            const resolved = await this.goTo(value)
+            if (resolved) {
+                const { index, anchor } = resolved
+                await this.addAnnotation(annotation)
+                const obj = this.#getOverlayer(index)
+                if (obj) {
+                    const { doc } = obj
+                    const range = doc ? anchor(doc) : anchor
+                    this.#emit('show-annotation', { value, index, range })
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to show annotation:', annotation, e)
         }
     }
     getCFI(index, range) {
@@ -594,4 +613,6 @@ export class View extends HTMLElement {
     }
 }
 
-customElements.define('foliate-view', View)
+if (!customElements.get('foliate-view')) {
+    customElements.define('foliate-view', View)
+}

@@ -268,15 +268,17 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const annotationsRef = useRef<Annotation[]>(annotations);
-  useEffect(() => {
-    annotationsRef.current = annotations;
-  }, [annotations]);
+  const updateAnnotations = useCallback((anns: Annotation[]) => {
+    annotationsRef.current = anns;
+    setAnnotations(anns);
+  }, []);
 
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const bookmarksRef = useRef<Bookmark[]>(bookmarks);
-  useEffect(() => {
-    bookmarksRef.current = bookmarks;
-  }, [bookmarks]);
+  const updateBookmarks = useCallback((bms: Bookmark[]) => {
+    bookmarksRef.current = bms;
+    setBookmarks(bms);
+  }, []);
 
   const [footnote, setFootnote] = useState<FootnoteData | null>(null);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
@@ -871,8 +873,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
       view.addEventListener('draw-annotation', (e: any) => {
         const { draw, annotation } = e.detail;
-        const { color } = annotation;
-        draw(Overlayer.highlight, { color: color || '#eab308' });
+        const { color, style } = annotation;
+        const drawFunc = (style && (Overlayer as any)[style]) || Overlayer.highlight;
+        draw(drawFunc, { color: color || '#eab308' });
       });
 
       view.addEventListener('show-annotation', (e: any) => {
@@ -994,6 +997,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         // Apply visual styles
         applyStyles();
 
+        // Load annotations & bookmarks from SQLite
+        const [loadedAnns, loadedBms] = await Promise.all([
+          loadDbAnnotations(bookId),
+          loadDbBookmarks(bookId),
+        ]);
+        updateAnnotations(loadedAnns);
+        updateBookmarks(loadedBms);
+
         // Restore saved location or text start
         const savedLoc = await loadDbLastLocation(bookId);
         if (savedLoc?.cfi) {
@@ -1004,13 +1015,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           await view.init({ showTextStart: true });
         }
 
-        // Load annotations & bookmarks from SQLite
-        const [loadedAnns, loadedBms] = await Promise.all([
-          loadDbAnnotations(bookId),
-          loadDbBookmarks(bookId),
-        ]);
-        setAnnotations(loadedAnns);
-        setBookmarks(loadedBms);
         if (viewRef.current) {
           for (const ann of loadedAnns) {
             viewRef.current.addAnnotation(ann);
@@ -1028,8 +1032,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
                 loadDbAnnotations(bookId),
                 loadDbBookmarks(bookId),
               ]);
-              setAnnotations(syncedAnns);
-              setBookmarks(syncedBms);
+              updateAnnotations(syncedAnns);
+              updateBookmarks(syncedBms);
               if (viewRef.current) {
                 for (const ann of syncedAnns) {
                   viewRef.current.addAnnotation(ann);
@@ -1160,7 +1164,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
     await saveDbAnnotation(newAnn);
     const updated = await loadDbAnnotations(bookId);
-    setAnnotations(updated);
+    updateAnnotations(updated);
     viewRef.current?.addAnnotation(newAnn);
     clearAllSelections();
     setSelection(null);
@@ -1170,7 +1174,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const handleDeleteAnnotation = async (value: string) => {
     await deleteDbAnnotation(bookId, value);
     const updated = await loadDbAnnotations(bookId);
-    setAnnotations(updated);
+    updateAnnotations(updated);
     viewRef.current?.deleteAnnotation({ value });
     clearAllSelections();
     setSelection(null);
@@ -1198,14 +1202,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     };
     await saveDbBookmark(newBm);
     const updated = await loadDbBookmarks(bookId);
-    setBookmarks(updated);
+    updateBookmarks(updated);
     syncBookData(bookId).catch(console.warn);
   };
 
   const handleDeleteBookmark = async (id: string) => {
     await deleteDbBookmark(bookId, id);
     const updated = await loadDbBookmarks(bookId);
-    setBookmarks(updated);
+    updateBookmarks(updated);
     syncBookData(bookId).catch(console.warn);
   };
 

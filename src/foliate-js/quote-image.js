@@ -49,38 +49,40 @@ const html = `<style>
 </main>`
 
 // TODO: lang, vertical writing
-customElements.define('foliate-quoteimage', class extends HTMLElement {
-    #root = this.attachShadow({ mode: 'closed' })
-    constructor() {
-        super()
-        this.#root.innerHTML = html
-    }
-    async getBlob({ title, author, text }) {
-        this.#root.querySelector('#title').textContent = title
-        this.#root.querySelector('#author').textContent = author
-        this.#root.querySelector('#text').innerText = text
+if (!customElements.get('foliate-quoteimage')) {
+    customElements.define('foliate-quoteimage', class extends HTMLElement {
+        #root = this.attachShadow({ mode: 'closed' })
+        constructor() {
+            super()
+            this.#root.innerHTML = html
+        }
+        async getBlob({ title, author, text }) {
+            this.#root.querySelector('#title').textContent = title
+            this.#root.querySelector('#author').textContent = author
+            this.#root.querySelector('#text').innerText = text
 
-        fit(this.#root.querySelector('main'))
+            fit(this.#root.querySelector('main'))
 
-        const img = document.createElement('img')
-        return new Promise(resolve => {
-            img.onload = () => {
-                const canvas = document.createElement('canvas')
-                canvas.width = pixelRatio * width
-                canvas.height = pixelRatio * height
-                const ctx = canvas.getContext('2d')
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-                canvas.toBlob(resolve)
-            }
-            const doc = document.implementation.createDocument(SVG_NS, 'svg')
-            doc.documentElement.setAttribute('viewBox', `0 0 ${width} ${height}`)
-            const obj = doc.createElementNS(SVG_NS, 'foreignObject')
-            obj.setAttribute('width', width)
-            obj.setAttribute('height', height)
-            obj.append(doc.importNode(this.#root.querySelector('main'), true))
-            doc.documentElement.append(obj)
-            img.src = 'data:image/svg+xml;charset=utf-8,'
-                + new XMLSerializer().serializeToString(doc)
-        })
-    }
-})
+            const img = document.createElement('img')
+            return new Promise(resolve => {
+                img.onload = () => {
+                    const canvas = document.createElement('canvas')
+                    canvas.width = pixelRatio * width
+                    canvas.height = pixelRatio * height
+                    const ctx = canvas.getContext('2d')
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+                    canvas.toBlob(resolve)
+                }
+                const doc = document.implementation.createDocument(SVG_NS, 'svg')
+                doc.documentElement.setAttribute('viewBox', `0 0 ${width} ${height}`)
+                const obj = doc.createElementNS(SVG_NS, 'foreignObject')
+                obj.setAttribute('width', width)
+                obj.setAttribute('height', height)
+                obj.append(doc.importNode(this.#root.querySelector('main'), true))
+                doc.documentElement.append(obj)
+                img.src = 'data:image/svg+xml;charset=utf-8,'
+                    + new XMLSerializer().serializeToString(doc)
+            })
+        }
+    })
+}

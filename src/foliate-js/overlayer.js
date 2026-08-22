@@ -38,11 +38,15 @@ export class Overlayer {
             obj.rects = rects
         }
     }
-    hitTest({ x, y }) {
+    hitTest(point) {
+        const x = point?.x ?? point?.clientX
+        const y = point?.y ?? point?.clientY
+        if (x == null || y == null) return []
         const arr = Array.from(this.#map.entries())
         // loop in reverse to hit more recently added items first
         for (let i = arr.length - 1; i >= 0; i--) {
             const [key, obj] = arr[i]
+            if (!obj.rects) continue
             for (const { left, top, right, bottom } of obj.rects)
                 if (top <= y && left <= x && bottom > y && right > x)
                     return [key, obj.range]
@@ -127,7 +131,8 @@ export class Overlayer {
         const { color = 'red' } = options
         const g = createSVGElement('g')
         g.setAttribute('fill', color)
-        g.style.opacity = 'var(--overlayer-highlight-opacity, .3)'
+        g.setAttribute('fill-opacity', '0.35')
+        g.style.opacity = 'var(--overlayer-highlight-opacity, 0.35)'
         g.style.mixBlendMode = 'var(--overlayer-highlight-blend-mode, normal)'
         for (const { left, top, height, width } of rects) {
             const el = createSVGElement('rect')

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Annotation, Bookmark } from '../types/reader';
 import { getServerUrl, getAccessToken } from '../api/tokenManager';
+import { parseCfiRange, toCfiRange } from '../utils/cfi';
 
 export interface SyncResult {
   success: boolean;
@@ -246,18 +247,21 @@ export async function loadDbAnnotations(bookId: string): Promise<Annotation[]> {
 
   try {
     const res = await invoke<DbAnnotation[]>('db_get_annotations', { bookId });
-    return res.map((ann) => ({
-      id: ann.id,
-      bookId: ann.bookId,
-      value: ann.value,
-      color: ann.color,
-      style: (ann.style as any) || 'highlight',
-      text: ann.selectedText,
-      note: ann.note,
-      createdAt: ann.createdAt,
-      chapterTitle: ann.chapterTitle,
-      sectionIndex: ann.sectionIndex,
-    }));
+    return res.map((ann) => {
+      const cfiRange = toCfiRange(ann.locationStart, ann.locationEnd);
+      return {
+        id: ann.id,
+        bookId: ann.bookId,
+        value: cfiRange || ann.value,
+        color: ann.color,
+        style: (ann.style as any) || 'highlight',
+        text: ann.selectedText,
+        note: ann.note,
+        createdAt: ann.createdAt,
+        chapterTitle: ann.chapterTitle,
+        sectionIndex: ann.sectionIndex,
+      };
+    });
   } catch (err) {
     console.error('Failed to load annotations from SQLite:', err);
     return [];
@@ -265,6 +269,7 @@ export async function loadDbAnnotations(bookId: string): Promise<Annotation[]> {
 }
 
 export async function saveDbAnnotation(annotation: Annotation): Promise<void> {
+  const { locationStart, locationEnd } = parseCfiRange(annotation.value);
   if (!isTauri()) {
     try {
       const data = localStorage.getItem('foliate_book_annotations');
@@ -288,8 +293,8 @@ export async function saveDbAnnotation(annotation: Annotation): Promise<void> {
     await invoke('db_save_annotation', {
       id: annotation.id,
       bookId: annotation.bookId,
-      locationStart: annotation.value,
-      locationEnd: annotation.value,
+      locationStart: locationStart || annotation.value,
+      locationEnd: locationEnd || annotation.value,
       value: annotation.value,
       selectedText: annotation.text,
       note: annotation.note || null,

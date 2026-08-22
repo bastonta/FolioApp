@@ -384,6 +384,7 @@ class View {
                 this.#overlayer.element.style.left = this.#vertical ? '0' : `${this.#size}px`
                 this.#overlayer.element.style.top = this.#vertical ? `${this.#size}px` : '0'
                 this.#overlayer.element.style[side] = `${expandedSize}px`
+                this.#overlayer.element.style[otherSide] = '100%'
                 this.#overlayer.redraw()
             }
         } else {
@@ -403,6 +404,7 @@ class View {
                 this.#overlayer.element.style.left = '0'
                 this.#overlayer.element.style.top = '0'
                 this.#overlayer.element.style[side] = `${expandedSize}px`
+                this.#overlayer.element.style[otherSide] = '100%'
                 this.#overlayer.redraw()
             }
         }
@@ -411,6 +413,7 @@ class View {
     set overlayer(overlayer) {
         this.#overlayer = overlayer
         this.#element.append(overlayer.element)
+        this.expand()
     }
     get overlayer() {
         return this.#overlayer
@@ -1005,13 +1008,13 @@ export class Paginator extends HTMLElement {
             }
             const beforeRender = this.#beforeRender.bind(this)
             await view.load(src, afterLoad, beforeRender)
+            this.#view = view
             this.dispatchEvent(new CustomEvent('create-overlayer', {
                 detail: {
                     doc: view.document, index,
                     attach: overlayer => view.overlayer = overlayer,
                 },
             }))
-            this.#view = view
         }
         await this.scrollToAnchor((typeof anchor === 'function'
             ? anchor(this.#view.document) : anchor) ?? 0, select)
@@ -1146,4 +1149,6 @@ export class Paginator extends HTMLElement {
     }
 }
 
-customElements.define('foliate-paginator', Paginator)
+if (!customElements.get('foliate-paginator')) {
+    customElements.define('foliate-paginator', Paginator)
+}
